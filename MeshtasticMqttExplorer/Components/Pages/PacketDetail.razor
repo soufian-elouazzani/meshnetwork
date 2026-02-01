@@ -1,0 +1,434 @@
+﻿@page "/packet/{id:long}"
+@page "/packet/by-packetid/{packetId:long}"
+@page "/packet/by-reply-packetid/{replyId:long}"
+@page "/packet/by-request-packetid/{requestId:long}"
+
+@implements IAsyncDisposable
+
+@using System.Globalization
+@using Common.Context
+@using Common.Context.Entities
+@using Common.Extensions
+@using Common.Extensions.Entities
+@using Common.Models
+@using Common.Services
+@using Microsoft.EntityFrameworkCore
+@using MeshtasticMqttExplorer.Components.Shared
+@using Node = Common.Context.Entities.Node
+@using NotificationService = Common.Services.NotificationService
+
+@inject IJSRuntime JsRuntime
+@inject IDbContextFactory<DataContext> ContextFactory
+@inject IMessageService Message
+@inject MeshtasticService MeshtasticService
+@inject NotificationService NotificationService
+
+<PageTitle>Détail du packet @Packet?.PacketId</PageTitle>
+
+<Spin Spinning="Loading">
+    @if (Packet != null)
+    {
+        <PageHeader Title="@($"Trame #{Packet?.PacketId} {Packet?.PortNum} du noeud {Packet?.From.NodeIdString} pour {Packet?.To.NodeIdString}")" 
+                    Subtitle="@Packet?.CreatedAt.ToFrench().ToString(CultureInfo.CurrentCulture)"></PageHeader>
+
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-around;">
+            <div style="flex: 1">
+                <Timeline>
+                    <TimelineItem Color="TimelineDotColor.Blue">
+                        Expéditeur : <a href="/node/@Packet.FromId" target="_blank" rel="nofollow">@Packet.From.AllNames</a>
+                        <br />
+                        @if (Packet.Position != null)
+                        {
+                            <a href="https://www.openstreetmap.org/#map=15/@Packet.Position.Latitude.ToString(CultureInfo.InvariantCulture)/@Packet.Position.Longitude.ToString(CultureInfo.InvariantCulture)" target="_blank">Carte</a>
+                        }
+                    </TimelineItem>
+
+                    @if (Packet.RelayNodeNode != null)
+                    {
+                        <TimelineItem Color="TimelineDotColor.Gray">
+                            Noeud relai : <a href="/node/@Packet.RelayNodeNode.Id" target="_blank" rel="nofollow">@Packet.RelayNodeNode.AllNames</a>
+                        </TimelineItem>
+                    }
+                    else if (Packet.RelayNode > 0 && Packet.RelayNode != (Packet.From.NodeId & 0xFF))
+                    {
+                        <TimelineItem Color="TimelineDotColor.Gray">
+                            Noeud relai : un qui se termine par <b>@Packet.RelayNode.Value.ToHexString()</b>
+                        </TimelineItem>
+                    }
+
+                    @if (Packet.NextHopNode != null)
+                    {
+                        <TimelineItem Color="TimelineDotColor.Gray">
+                            Noeud suivant : <a href="/node/@Packet.NextHopNode.Id" target="_blank" rel="nofollow">@Packet.NextHopNode.AllNames</a>
+                        </TimelineItem>
+                    }
+                    else if (Packet.NextHop > 0 && Packet.NextHop != (Packet.To.NodeId & 0xFF))
+                    {
+                        <TimelineItem Color="TimelineDotColor.Gray">
+                            Noeud suivant : un qui se termine par <b>@Packet.NextHop.Value.ToHexString()</b>
+                        </TimelineItem>
+                    }
+                    
+                    <TimelineItem Color="TimelineDotColor.Red">
+                        Destinataire : <a href="/node/@Packet.ToId" target="_blank" rel="nofollow">@Packet.To.AllNames</a>
+                    </TimelineItem>
+
+                    <TimelineItem Color="TimelineDotColor.Green">
+                        Passerelle MQTT @Packet.MqttServer?.Name : <a href="/node/@Packet.GatewayId" target="_blank" rel="nofollow">@Packet.Gateway.AllNames</a>
+                        <br/>
+                        Distance de <b>@Math.Round(Packet.GatewayDistanceKm ?? 0, 2) Km</b> - <b>@Math.Abs(Packet.HopStart - Packet.HopLimit ?? 0)</b> sauts | SNR : <b>@Packet.RxSnr</b> | RSSI : <b>@Packet.RxRssi</b>
+                        <br />
+                        @if (Packet.GatewayPosition != null)
+                        {
+                            <a href="https://www.openstreetmap.org/#map=15/@Packet.GatewayPosition.Latitude.ToString(CultureInfo.InvariantCulture)/@Packet.GatewayPosition.Longitude.ToString(CultureInfo.InvariantCulture)" target="_blank">Carte</a>
+                        }
+                    </TimelineItem>
+                </Timeline>
+                
+                <div>
+                    Canal : <b>@Packet.Channel.Name</b>
+                </div>
+
+                <div>
+                    @if (Packet.RequestId > 0)
+                    {
+                        <p>
+                            <text>Réponse à la requête </text><a href="/packet/by-packetid/@Packet.RequestId" target="_blank" rel="nofollow">#@Packet.RequestId</a>
+                        </p>
+                    }
+
+                    @if (Packet.ReplyId > 0)
+                    {
+                        <p>
+                            <text>Réponse à la trame </text><a href="/packet/by-packetid/@Packet.ReplyId" target="_blank" rel="nofollow">#@Packet.ReplyId</a>
+                        </p>
+                    }
+
+                    @if (Packet.WantAck == true)
+                    {
+                        <p>
+                            <a href="/packet/by-reply-packetid/@Packet.PacketId" target="_blank" rel="nofollow">Voir la trame ack retour</a>
+                        </p>
+                    }
+
+                    @if (Packet.WantResponse == true)
+                    {
+                        <p>
+                            <a href="/packet/by-request-packetid/@Packet.PacketId" target="_blank" rel="nofollow">Voir la trame réponse</a>
+                        </p>
+                    }
+                    
+                    @if (Packet.PacketDuplicatedId != null)
+                    {
+                        <p>
+                            <a href="/packet/@Packet.PacketDuplicatedId" target="_blank" rel="nofollow">Voir la trame originale</a>
+                        </p>
+                    }
+                </div>
+                
+                @if (Packet.PacketActivity != null)
+                {
+                    <div>
+                        MQTT : @(Packet.PacketActivity.Accepted ? $"Autorisée {Packet.PacketActivity.HopLimit} sauts" : "Refusée")
+                        <br />
+                        @Packet.PacketActivity.Comment
+                        <details>
+                            <summary>Clients MQTT qui ont reçu</summary>
+                            <pre>@Packet.PacketActivity.ReceiverIds.Order().JoinString("\n")</pre>
+                        </details>
+                    </div>
+                }
+                
+                @if (Packet.From is { Latitude: not null, Longitude: not null } && AllDuplicatedPackets.Any())
+                {
+                    <div style="padding: 20px">
+                        <Osm Latitude="Packet.From.Latitude!.Value" Longitude="Packet.From.Longitude!.Value" Zoom="8"
+                             @ref="Map"></Osm>
+                    </div>
+                }
+            </div>
+            
+            @if (AllDuplicatedPackets.Any())
+            {
+                <div style="flex: 1">
+                    @foreach (var duplicatedPacketData in AllDuplicatedPackets)
+                    {
+                        <p>
+                            <b>
+                                @if (duplicatedPacketData.Hop == 0)
+                                {
+                                    <text>Reçu en direct</text>
+                                }
+                                else
+                                {
+                                    <text>Saut </text>
+                                    @duplicatedPacketData.Hop<text>/</text>
+                                    @Packet.HopStart
+                                }
+                            </b>
+                        </p>
+
+                        <Timeline>
+                            @foreach (var duplicatedPacket in duplicatedPacketData.Packets)
+                            {
+                                <TimelineItem Color="duplicatedPacket.HopLimit == duplicatedPacket.HopStart ? TimelineDotColor.Green : TimelineDotColor.Blue">
+                                    Passerelle MQTT @duplicatedPacket.MqttServer?.Name : <a href="/node/@duplicatedPacket.GatewayId" target="_blank" rel="nofollow">@duplicatedPacket.Gateway.AllNames</a>
+                                    <br/>
+                                    Distance de <b>@Math.Round(duplicatedPacket.GatewayDistanceKm ?? 0, 2) Km</b> | SNR : <b>@duplicatedPacket.RxSnr</b> | RSSI : <b>@duplicatedPacket.RxRssi</b>
+
+                                    @if (duplicatedPacket.RelayNodeNode != null)
+                                    {
+                                        <br/>
+                                        <text>Via <a href="/node/@duplicatedPacket.RelayNodeId" target="_blank" rel="nofollow">@duplicatedPacket.RelayNodeNode.AllNames</a></text>
+                                    }
+
+                                    <br/>
+                                    <a target="_blank" href="/packet/@duplicatedPacket.Id"><i>Voir la trame</i></a>
+                                </TimelineItem>
+                            }
+                        </Timeline>
+                    }
+                </div>
+            }
+        </div>
+        
+        <PacketPayload Packet="Packet" FullDetail="true"></PacketPayload>
+        
+        <Button OnClick="() => ComputeAgain()">Traiter la trame</Button>
+        <Button OnClick="() => Notify()">Notifier</Button>
+        <Popover ContentTemplate="@ContentNotificationText" Title="Texte notification">
+            <Button OnClick="() => CopyTextToClipboard(NotificationText)">Texte notification</Button>
+        </Popover>
+    }
+    else if (Loading)
+    {
+        <Skeleton></Skeleton>
+    }
+    else
+    {
+        <Result Title="Paquet introuvable" Status="ResultStatus.Http404"></Result>
+    }
+</Spin>
+
+@code
+{
+    [Parameter]
+    public long? Id { get; set; }
+    
+    [Parameter]
+    public long? PacketId { get; set; }
+    
+    [Parameter]
+    public long? ReplyId { get; set; }
+    
+    [Parameter]
+    public long? RequestId { get; set; }
+
+    private RenderFragment ContentNotificationText => @<div>@NotificationText</div>;
+    private string? NotificationText { get; set; }
+
+    private bool Loading { get; set; } = true;
+    private Packet? Packet { get; set; }
+    private List<PacketsHop> AllDuplicatedPackets { get; set; } = [];
+    private DataContext Context { get; set; } = null!;
+    
+    private bool HasRenderMapData { get; set; }
+    private Osm? Map { get; set; }
+    
+    protected override async Task OnInitializedAsync()
+    {
+        Context = await ContextFactory.CreateDbContextAsync();
+
+        await FetchData();
+
+        await base.OnInitializedAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Map != null && !HasRenderMapData && Packet?.From is { Latitude: not null, Longitude: not null } && AllDuplicatedPackets.Any())
+        {
+            List<Osm.Marker> markers = [];
+            List<Osm.Line> lines = [];
+            
+            markers.Add(new Osm.Marker
+            {
+                Id = $"node-{Packet.FromId}",
+                Latitude = Packet.From.Latitude!.Value,
+                Longitude = Packet.From.Longitude!.Value,
+                Color = "gold",
+                Label = $"{Packet.From.FullName()}",
+                Popup = Utils.GetPositionLinePopupHtml(Packet, "Expéditeur")
+            });
+
+            foreach (var packetsHop in AllDuplicatedPackets)
+            {
+                // Pour tracer les chemins manquants (depuis les relayNode (Hop - 1). On cherche les packets en Hop - 2
+                var lastPacketHopForRelay = AllDuplicatedPackets.Find(p => p.Hop == packetsHop.Hop - 2);
+
+                foreach (var duplicatedPacket in packetsHop.Packets.Where(p => p.Gateway is { Latitude: not null, Longitude: not null }))
+                {
+                    markers.Add(new Osm.Marker
+                    {
+                        Id = $"node-{duplicatedPacket.GatewayId}",
+                        Latitude = duplicatedPacket.Gateway.Latitude!.Value,
+                        Longitude = duplicatedPacket.Gateway.Longitude!.Value,
+                        Color = "green",
+                        Label = $"{duplicatedPacket.Gateway.FullName()}",
+                        Popup = Utils.GetPositionLinePopupHtml(duplicatedPacket, $"Saut : {packetsHop.Hop}", duplicatedPacket.Gateway)
+                    });
+
+                    if (duplicatedPacket.FromId != duplicatedPacket.GatewayId)
+                    {
+                        if (duplicatedPacket.RelayNodeNode != null)
+                        {
+                            if (duplicatedPacket.RelayNodeNode is { Latitude: not null, Longitude: not null })
+                            {
+                                markers.Add(new Osm.Marker
+                                {
+                                    Id = $"node-{duplicatedPacket.RelayNodeId}",
+                                    Latitude = duplicatedPacket.RelayNodeNode.Latitude!.Value,
+                                    Longitude = duplicatedPacket.RelayNodeNode.Longitude!.Value,
+                                    Color = duplicatedPacket.RelayNodeNode.IsMqttGateway == false ? "blue" : "green",
+                                    Label = $"{duplicatedPacket.RelayNodeNode.FullName()}",
+                                    Popup = Utils.GetPositionLinePopupHtml(duplicatedPacket, $"Saut : {packetsHop.Hop - 1}<br />Noeud relais {(duplicatedPacket.RelayNodeNode.IsMqttGateway == false ? "non MQTT" : "")}", duplicatedPacket.RelayNodeNode)
+                                });
+
+                                lines.Add(new Osm.Line
+                                {
+                                    Id = $"line-{duplicatedPacket.RelayNodeId}-{duplicatedPacket.GatewayId}",
+                                    Points =
+                                    [
+                                        [duplicatedPacket.RelayNodeNode.Latitude.Value, duplicatedPacket.RelayNodeNode.Longitude.Value],
+                                        [duplicatedPacket.Gateway.Latitude.Value, duplicatedPacket.Gateway.Longitude.Value],
+                                    ],
+                                    Color = Utils.GreenLight,
+                                    Popup = $"Saut : {packetsHop.Hop}<br />Entre {duplicatedPacket.RelayNodeNode.OneName(true)} et {duplicatedPacket.Gateway.OneName(true)}"
+                                });
+                            }
+                        }
+                            else if (lastPacketHopForRelay != null)
+                            {
+                                // foreach (var packet in lastPacketHopForRelay.Packets.Where(p => p.Gateway is { Latitude: not null, Longitude: not null }))
+                                // {
+                                //     lines.Add(new Osm.Line
+                                //     {
+                                //         Id = $"line-{packet.RelayNodeId}-{duplicatedPacket.RelayNodeId}",
+                                //         Points =
+                                //         [
+                                //             [packet.Gateway!.Latitude!.Value, packet.Gateway!.Longitude!.Value],
+                                //             [duplicatedPacket.RelayNodeNode.Latitude.Value, duplicatedPacket.RelayNodeNode.Longitude.Value],
+                                //         ],
+                                //         Color = lastPacketHopForRelay?.Hop == packetsHop.Hop - 1 ? Utils.Gold : Utils.Red,
+                                //         Popup = $"Saut : {packetsHop.Hop - 1}<br />Probablement entre {packet.Gateway.OneName(true)} et {duplicatedPacket.RelayNodeNode.OneName(true)}"
+                                //     });
+                                // }
+                                // foreach (var packet in lastPacketHopForRelay.Packets.Where(p => p.RelayNodeNode is { Latitude: not null, Longitude: not null }))
+                                // {
+                                //     lines.Add(new Osm.Line
+                                //     {
+                                //         Id = $"line-{packet.RelayNodeId}-{duplicatedPacket.RelayNodeId}",
+                                //         Points =
+                                //         [
+                                //             [packet.RelayNodeNode!.Latitude!.Value, packet.RelayNodeNode!.Longitude!.Value],
+                                //             [duplicatedPacket.RelayNodeNode.Latitude.Value, duplicatedPacket.RelayNodeNode.Longitude.Value],
+                                //         ],
+                                //         Color = lastPacketHop?.Hop == packetsHop.Hop - 1 ? Utils.Gold : Utils.Red,
+                                //         Popup = $"Saut : {packetsHop.Hop - 1}<br />Probablement entre {packet.RelayNodeNode.OneName(true)} et {duplicatedPacket.RelayNodeNode.OneName(true)}"
+                                //     });
+                                // }
+                            }
+                    }
+                }
+            }
+
+            await Map.AddPolylines(lines.DistinctBy(n => n.Id).ToList());
+            await Task.Delay(TimeSpan.FromMilliseconds(150)); // Marker devant les lignes
+            await Map.AddMarkers(markers.DistinctBy(n => n.Id).ToList());
+
+            HasRenderMapData = true;
+        }
+
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    private async Task FetchData()
+    {
+        Loading = true;
+        
+        var query = Context.Packets
+            .Include(n => n.GatewayPosition)
+            .Include(n => n.Position)
+            .Include(n => n.Channel)
+            .Include(n => n.MqttServer)
+            .Include(n => n.From)
+            .Include(n => n.RelayNodeNode)
+            .Include(n => n.NextHopNode)
+            .ThenInclude(n => n.MyNeighbors)
+            .ThenInclude(n => n.NodeHeard)
+            .Include(n => n.To)
+            .Include(n => n.Gateway)
+            .Include(n => n.PacketActivity)
+            .AsNoTrackingWithIdentityResolution()
+        ;
+
+        if (Id.HasValue)
+        {
+            Packet = await query.FindByIdAsync(Id);
+        }
+        else if (PacketId != 0 && PacketId.HasValue)
+        {
+            Packet = await query.FindByPacketIdAsync((uint) PacketId.Value);
+        }
+        else if (ReplyId != 0 && ReplyId.HasValue)
+        {
+            Packet = await query.Where(a => a.ReplyId == ReplyId).FindByPacketIdAsync((uint) ReplyId.Value);
+        }
+        else if (RequestId != 0 && RequestId.HasValue)
+        {
+            Packet = await query.Where(a => a.RequestId == RequestId).FindByPacketIdAsync((uint) RequestId.Value);
+        }
+
+        if (Packet == null)
+        {
+            Loading = false;
+
+            return;
+        }
+
+        AllDuplicatedPackets = Context.Packets.GetAllPacketForPacketIdGroupedByHops(Packet);
+        NotificationText = NotificationService.GetPacketMessageToSend(Packet, Context);
+        
+        Loading = false;
+    }
+
+    private async Task ComputeAgain()
+    {
+        await MeshtasticService.DoReceive(Packet);
+        await Message.InfoAsync("Trame traitée !");
+    }
+
+    private async Task Notify()
+    {
+        await NotificationService.SendNotification(Packet);
+        await Message.InfoAsync("Notification envoyée !");
+    }
+
+    private async Task CopyTextToClipboard(string text)
+    {
+        try
+        {
+            await JsRuntime.InvokeVoidAsync("copyTextToClipboard", text);
+            await Message.InfoAsync("Copié !");
+        }
+        catch (Exception)
+        {
+            await Message.ErrorAsync("Impossible d'accéder au presse-papier");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await Context.DisposeAsync();
+    }
+}

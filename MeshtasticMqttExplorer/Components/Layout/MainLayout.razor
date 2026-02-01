@@ -1,0 +1,69 @@
+﻿@inherits LayoutComponentBase
+
+<Layout>
+    <Header Style="height: auto; min-height: 64px; display: flex; flex-wrap: wrap; align-items: center; color: white;">
+        <div style="margin-right: 60px">
+            <a href="/" style="color: unset; margin-right: 10px">Meshtastic MQTT Explorer</a>
+            <small>@Version</small>
+        </div>
+        
+        <Menu Theme="MenuTheme.Dark" Mode="MenuMode.Horizontal">
+            <MenuItem RouterLink="/map" RouterMatch="NavLinkMatch.All">Carte</MenuItem>
+            <SubMenu Title="Exploration">
+                <MenuItem RouterLink="/messages" RouterMatch="NavLinkMatch.All">Messages</MenuItem>
+                <MenuItem RouterLink="/weather" RouterMatch="NavLinkMatch.All">Météo</MenuItem>
+                <MenuItem RouterLink="/waypoints" RouterMatch="NavLinkMatch.All">Points d'intérêts</MenuItem>
+            </SubMenu>
+            <MenuItem RouterLink="/stats" RouterMatch="NavLinkMatch.All">Statistiques</MenuItem>
+            <SubMenu Title="Avancés">
+                <MenuItem RouterLink="/nodes" RouterMatch="NavLinkMatch.All">Nœuds</MenuItem>
+                <MenuItem RouterLink="/nodes-actives" RouterMatch="NavLinkMatch.All">Nœuds actifs</MenuItem>
+                <MenuItem RouterLink="/nodes-bad-config" RouterMatch="NavLinkMatch.All">Nœuds mal configurés</MenuItem>
+                <MenuItem RouterLink="/nodes-low-battery" RouterMatch="NavLinkMatch.All">Nœuds batterie faible</MenuItem>
+                <MenuItem RouterLink="/packets" RouterMatch="NavLinkMatch.All">Trames</MenuItem>
+                <MenuItem RouterLink="/graph.html">Graph des liaisons</MenuItem>
+                <MenuItem RouterLink="/gaulix_name_generator.html">Générateur de nom Gaulix</MenuItem>
+                
+                <MenuDivider></MenuDivider>
+                
+                <MenuItem RouterLink="/qr-code-decoder" RouterMatch="NavLinkMatch.All">Décodeur de QR Code</MenuItem>
+                <MenuItem RouterLink="/proto-decoder" RouterMatch="NavLinkMatch.All">Décodeur ProtoBuf</MenuItem>
+                
+                <MenuDivider></MenuDivider>
+                
+                <MenuItem RouterLink="/send" RouterMatch="NavLinkMatch.All">Envoyer une trame</MenuItem>
+            </SubMenu>
+        </Menu>
+    </Header>
+
+    <Content Style="padding: 15px;">
+        @Body
+    </Content>
+
+    <Footer Style="text-align: center; ">
+        <a href="/about">À propos</a> - <a href="https://f4hvv.valentin-saugnier.fr" target="_blank">Valentin Saugnier - F4HVV</a> - <a href="mailto:valentin.s.10@gmail.com">valentin.s.10@gmail.com</a> - <a href="https://github.com/valentintintin/meshtastic-mqtt-explorer" target="_blank">Github du projet</a>
+    </Footer>
+</Layout>
+
+<div id="blazor-error-ui">
+    <environment include="Staging,Production">
+        Une erreur est survenue sur la page :/
+    </environment>
+    <environment include="Development">
+        Une exception a été lancée !
+    </environment>
+    <a href="" class="reload">Recharger</a>
+    <a class="dismiss">🗙</a>
+</div>
+
+@code
+{
+    private string? Version { get; set; }
+
+    protected override void OnInitialized()
+    {
+        Version = GetType().Assembly.GetName().Version?.ToString();
+        
+        base.OnInitialized();
+    }
+}

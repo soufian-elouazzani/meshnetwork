@@ -1,0 +1,517 @@
+@page "/"
+@page "/map"
+
+@implements IAsyncDisposable
+@using System.Globalization
+@using System.Text.Json
+@using Common.Context
+@using Common.Extensions
+@using Meshtastic.Protobufs
+@using MeshtasticMqttExplorer.Components.Shared
+@using Microsoft.EntityFrameworkCore
+@using NeighborInfo = Common.Context.Entities.NeighborInfo
+@using Node = Common.Context.Entities.Node
+@using Common;
+
+@inject IDbContextFactory<DataContext> ContextFactory;
+@inject Blazored.LocalStorage.ILocalStorageService LocalStorage
+@inject ILogger<Osm> Logger
+
+<PageTitle>Carte des nœuds</PageTitle>
+
+<PageHeader Title="Cartes des nœuds">
+    <SubtitleTemplate>
+        @Total nœuds avec position dont @TotalAlive en ligne depuis le @MinDate.ToFrench() et les liens depuis le @MinDateNeighbors.ToFrench()
+    </SubtitleTemplate>
+    <PageHeaderExtra>
+        <Button Disabled="@Loading" OnClick="FetchData">Actualiser</Button>
+    </PageHeaderExtra>
+    <PageHeaderContent>
+        <div class="page-header-content">
+            <div>
+                <Segmented Disabled="Loading" Options="@ModemsPresets" Value="Settings.CurrentModemPreset" TValue="Config.Types.LoRaConfig.Types.ModemPreset?" OnChange="value => SetModemPreset(value)"/>
+                <Segmented Disabled="Loading" Options="@RegionsCodes" Value="Settings.CurrentRegionCode" TValue="Config.Types.LoRaConfig.Types.RegionCode?" OnChange="value => SetRegionCode(value)"/>
+
+                <Select DataSource="Roles" Disabled="Loading"
+                        Value="Settings.CurrentRole" OnSelectedItemChanged="value => SetRole(value)"
+                        TItem="Config.Types.DeviceConfig.Types.Role?" TItemValue="Config.Types.DeviceConfig.Types.Role?"
+                        Placeholder="les rôles" Style="width: 200px">
+                </Select>
+            </div>
+
+            <div>
+                <Switch @bind-Checked="Settings.HideLinks" Disabled="@Loading" CheckedChildren="Cacher les liens" UnCheckedChildren="Cacher les liens" OnChange="value => SetHideLinks(value)"/>
+                
+                @if (!Settings.HideLinks)
+                {
+                    <Switch @bind-Checked="Settings.ShowIncompleteLinks" Disabled="@Loading" CheckedChildren="Afficher les liens unidirectionnels" UnCheckedChildren="Afficher les unidirectionnels" OnChange="value => SetHideIncompleteLinks(value)"/>
+                    
+                    <Select DataSource="DurationsNeighbors" Disabled="Loading"
+                            Value="Settings.DurationNeighbors" OnSelectedItemChanged="value => SetDurationNeighbors(value)"
+                            TItem="TimeSpan" TItemValue="TimeSpan"
+                            Placeholder="Durée des liens" Style="width: 150px">
+                    </Select>
+                }
+            </div>
+            
+            <div>
+                <NodeSearch></NodeSearch>
+            </div>
+        </div>
+    </PageHeaderContent>
+</PageHeader>
+
+<Spin Spinning="Loading">
+    <Osm Height="calc(100vh - 250px)" @ref="Map" MoveZoomChanged="args => MoveZoomChanged(args)" 
+         Latitude="Settings.Latitude" Longitude="Settings.Longitude" Zoom="Settings.Zoom"></Osm>
+
+    @if (!Settings.ShowLegend)
+    {
+        <Switch @bind-Checked="Settings.ShowLegend" CheckedChildren="Afficher la légende" UnCheckedChildren="Afficher la légende" OnChange="value => SetShowLegend(value)"/>
+    }
+    
+    @if (Settings.ShowLegend)
+    {
+        <Card Title="Légende" Size="CardSize.Small" Bordered="true">
+            <TitleTemplate>
+                Légende
+                &nbsp;
+                <Switch @bind-Checked="Settings.ShowLegend" CheckedChildren="Afficher la légende" UnCheckedChildren="Afficher la légende" OnChange="value => SetShowLegend(value)"/>
+            </TitleTemplate>
+            <ChildContent>
+                <GridRow Gutter="(16, 16)" Justify="RowJustify.Center">
+                    <GridCol Xs="24" Md="12">
+                        <div class="legend">
+                            <span style="@GetIconStyleCss(Utils.Green)" class="legend-circle"></span>
+                            En ligne | Passerelle MQTT
+                        </div>
+                        <div class="legend">
+                            <span style="@GetIconStyleCss(Utils.Blue)" class="legend-circle"></span>
+                            En ligne
+                        </div>
+                        <div class="legend">
+                            <span style="@GetIconStyleCss(Utils.Red)" class="legend-circle"></span>
+                            Hors ligne depuis plus de 24h
+                        </div>
+                        <div class="legend">
+                            <span style="@GetIconStyleCss(Utils.Gray)" class="legend-circle"></span>
+                            Bande et profil de modulation inconnu
+                        </div>
+                    </GridCol>
+
+                    <GridCol Xs="24" Md="12">
+                        <div class="legend">
+                            <span style="background-color: @Utils.GreenLight" class="legend-bar"></span>
+                            Lien radio fonctionnel entre 2 noeuds
+                        </div>
+                        
+                        @if (Settings.ShowIncompleteLinks)
+                        {
+                            <div class="legend">
+                                <span style="background-color: @Utils.Red" class="legend-bar"></span>
+                                Lien radio unidirectionnel entre 2 noeuds
+                            </div>
+                        }
+
+                        <div class="legend">
+                            <span style="@GetIconStyleCss(Utils.Orange, null, 0)" class="legend-circle"></span>
+                            Point d'intétêt
+                        </div>
+                    </GridCol>
+                </GridRow>
+            </ChildContent>
+        </Card>
+    }
+</Spin>
+
+@code
+{
+    private bool Loading { get; set; }
+    private bool HasRenderMapData { get; set; }
+    private bool RenderFinished { get; set; }
+    private NodeMapSettings Settings { get; set; } = new()
+    {
+        Latitude = 46.199144,
+        Longitude = 2.321139,
+        Zoom = 5,
+        ShowLegend = true,
+        CurrentRegionCode = Config.Types.LoRaConfig.Types.RegionCode.Eu868,
+    };
+    private int Total { get; set; }
+    private int TotalAlive { get; set; }
+    private DateTime MinDate { get; set; } = DateTime.MinValue;
+    private DateTime MinDateNeighbors { get; set; } = DateTime.MinValue;
+    private List<Node> Nodes { get; set; } = [];
+    private List<NeighborInfo> Neighbors { get; set; } = [];
+    private DataContext Context { get; set; } = null!;
+    private Osm? Map { get; set; }
+    private List<SegmentedOption<Config.Types.LoRaConfig.Types.RegionCode?>> RegionsCodes { get; } = new List<SegmentedOption<Config.Types.LoRaConfig.Types.RegionCode?>> { new(null, "Tous") }
+        .Concat(Utils.RegionCodeFilters.Take(2).Select(a => new SegmentedOption<Config.Types.LoRaConfig.Types.RegionCode?>(a.Value, a.Text)))
+        .ToList();
+    private List<SegmentedOption<Config.Types.LoRaConfig.Types.ModemPreset?>> ModemsPresets { get; } = new List<SegmentedOption<Config.Types.LoRaConfig.Types.ModemPreset?>> { new(null, "Tous") } 
+        .Concat(Utils.ModemPresetFilters.Take(3).Select(a => new SegmentedOption<Config.Types.LoRaConfig.Types.ModemPreset?>(a.Value, a.Text)))
+        .ToList();
+    private List<Config.Types.DeviceConfig.Types.Role?> Roles { get; } = Utils.RoleFilters.Select(r => r.Value).ToList();
+    private List<TimeSpan> DurationsNeighbors { get; } = [TimeSpan.FromHours(1), TimeSpan.FromHours(2), TimeSpan.FromHours(6), TimeSpan.FromHours(12), TimeSpan.FromDays(1), TimeSpan.FromDays(2), TimeSpan.FromDays(3), TimeSpan.FromDays(7), TimeSpan.FromDays(14)];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var settings = await LocalStorage.GetItemAsync<NodeMapSettings>("nodeMapSettings");
+            if (settings != null)
+            {
+                Settings.Latitude = settings.Latitude;
+                Settings.Longitude = settings.Longitude;
+                Settings.Zoom = settings.Zoom;
+                Settings.ShowLegend = settings.ShowLegend;
+                Settings.HideLinks = settings.HideLinks;
+                Settings.ShowIncompleteLinks = settings.ShowIncompleteLinks;
+                // Settings = settings; // Semble bugger sur le modem preset et region
+                Logger.LogDebug("Utilisation de settings : {settings}", JsonSerializer.Serialize(settings));
+            }
+            
+            await FetchData();
+        }
+
+        if (!firstRender && Map != null && !HasRenderMapData)
+        {
+            await Map.ClearMarkers();
+            
+            var markers = Nodes
+                .Where(n => !n.IsOffline() || n.MqttServer?.IsHighLoad != true)
+                .Where(n => Settings.CurrentRegionCode == null|| n.RegionCode == Settings.CurrentRegionCode)
+                .Where(n => Settings.CurrentModemPreset == null || n.ModemPreset == Settings.CurrentModemPreset || n.ModemPreset == null)
+                .Where(n => Settings.CurrentRole == null || n.Role == Settings.CurrentRole || n.Role == null)
+                .OrderBy(a => a.UpdatedAt) // Draw old before new
+                .Select(GetMarker)
+                .ToList();
+            List<Osm.Line> lines = [];
+            
+            foreach (var node in Nodes)
+            {
+                if (node.Waypoints.Any())
+                {
+                    markers.AddRange(
+                        node.Waypoints
+                            .Select(n => new Osm.Marker
+                            {
+                                Id = $"waypoint-{n.Id}",
+                                Latitude = n.Latitude,
+                                Longitude = n.Longitude,
+                                Color = Utils.Orange,
+                                IconType = Osm.IconType.Circle,
+                                Label = $"Point d'intérêt : {n.Name}",
+                                Popup = !string.IsNullOrWhiteSpace(n.Description) ? $"<p><b>{n.Name}</b></p><p>{n.Description}</p>" : null
+                            })
+                    );
+                }
+            }
+
+            if (!Settings.HideLinks)
+            {
+                var neighborInfos = Neighbors
+                    .Where(a => a.DataSource != NeighborInfo.Source.Unknown && a.DataSource != NeighborInfo.Source.NextHop)
+                    .Where(a => a.UpdatedAt >= MinDateNeighbors)
+                    .Where(n => Settings.CurrentRegionCode == null|| n.NodeReceiver.RegionCode == Settings.CurrentRegionCode)
+                    .Where(n => Settings.CurrentModemPreset == null || n.NodeReceiver.ModemPreset == Settings.CurrentModemPreset || n.NodeReceiver.ModemPreset == null)
+                    .Where(n => Settings.CurrentRole == null || n.NodeReceiver.Role == Settings.CurrentRole || n.NodeReceiver.Role == null)
+                    .ToList();
+                
+                foreach (var neighbor in neighborInfos)
+                {
+                    var reverseNeighbor = neighborInfos.FirstOrDefault(n => n.NodeHeard == neighbor.NodeReceiver && n.NodeReceiver == neighbor.NodeHeard && n.DataSource != NeighborInfo.Source.Unknown);
+                    var isBidirectionnal = reverseNeighbor != null;
+                    var reverseAlreadyDrawn = isBidirectionnal && lines.Exists(l => l.Id == $"node-{neighbor.NodeHeard.Id}->node-{neighbor.NodeReceiver.Id}");
+
+                    if (!isBidirectionnal && !Settings.ShowIncompleteLinks)
+                    {
+                        continue;
+                    }
+                    
+                    if (isBidirectionnal && reverseAlreadyDrawn)
+                    {
+                        continue;
+                    }
+
+                    double[] startPoint = [neighbor.NodeReceiver.Latitude!.Value, neighbor.NodeReceiver.Longitude!.Value];
+                    double[] endPoint = [neighbor.NodeHeard.Latitude!.Value, neighbor.NodeHeard.Longitude!.Value];
+
+                    endPoint = isBidirectionnal ? endPoint : MeshtasticUtils.GetMiddle(startPoint[0], startPoint[1], endPoint[0], endPoint[1]);
+
+                    lines.Add(new Osm.Line
+                    {
+                        Id = $"node-{neighbor.NodeReceiver.Id}->node-{neighbor.NodeHeard.Id}",
+                        Points =
+                        [
+                            startPoint,
+                            endPoint
+                        ],
+                        Color = Utils.GreenLight,
+                        Popup = Utils.GetNeighborLinePopupHtml(neighbor.NodeReceiver, neighbor, reverseNeighbor)
+                    });
+
+                    if (!isBidirectionnal && neighbor.Distance >= 1) // Il manque un côté donc on le fait artificiellement pour mettre une ligne rouge
+                    {
+                        startPoint = [neighbor.NodeHeard.Latitude!.Value, neighbor.NodeHeard.Longitude!.Value];
+
+                        lines.Add(new Osm.Line
+                        {
+                            Id = $"node-{neighbor.NodeHeard.Id}->node-{neighbor.NodeReceiver.Id}",
+                            Points =
+                            [
+                                startPoint,
+                                endPoint
+                            ],
+                            Color = Utils.Red,
+                            Popup = $"<p>" +
+                                    $"<a href=\"/node/{neighbor.NodeHeard.Id}\" target=\"_blank\" rel=\"nofollow\">" +
+                                    $"<b>{neighbor.NodeHeard.AllNames}</b>" +
+                                    $"</a>" +
+                                    $"</p>" +
+                                    $"<p>" +
+                                    $"N'entend pas" +
+                                    $"</p>" +
+                                    $"<p>" +
+                                    $"<a href=\"/node/{neighbor.NodeReceiver.Id}\" target=\"_blank\" rel=\"nofollow\">" +
+                                    $"<b>{neighbor.NodeReceiver.AllNames}</b>" +
+                                    $"</a>" +
+                                    $"</p>"
+                        });
+                    }
+                }
+            }
+
+            await Map.AddPolylines(lines.DistinctBy(n => n.Id).ToList());
+            await Task.Delay(TimeSpan.FromMilliseconds(500)); // Marker devant les lignes
+            await Map.AddMarkers(markers.DistinctBy(n => n.Id).ToList());
+            HasRenderMapData = true;
+            RenderFinished = !firstRender;
+        }
+        
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        MinDate = DateTime.Today.ToUniversalTime().AddDays(-3);
+        MinDateNeighbors = DateTime.Today.ToUniversalTime().AddDays(-1);
+        
+        if (CultureInfo.CurrentCulture.Name != "fr-FR")
+        {
+            Settings.CurrentRegionCode = null;
+            Settings.CurrentModemPreset = null;
+        }
+        
+        Context = await ContextFactory.CreateDbContextAsync();
+        
+        await base.OnInitializedAsync();
+    }
+
+    private async Task FetchData()
+    {
+        if (Loading)
+        {
+            return;
+        }
+        
+        Loading = true;
+        
+        Nodes = await Context.Nodes
+            .Include(n => n.MqttServer)
+            .Include(n => n.Waypoints.Where(a => a.ExpiresAt >= DateTime.UtcNow))
+            .Where(n => !n.Ignored)
+            .Where(n => n.LastSeen.HasValue && n.LastSeen >= MinDate)
+            .Where(n => n.Latitude.HasValue && n.Longitude.HasValue)
+            .AsNoTrackingWithIdentityResolution()
+            .ToListAsync();
+        
+        Neighbors = (await Context.NeighborInfos
+            .Include(a => a.NodeReceiver)
+            .Include(a => a.NodeHeard)
+            .Where(a => a.DataSource != NeighborInfo.Source.Unknown)
+            .Where(a => a.UpdatedAt >= MinDate)
+            .Where(a => a.Distance < MeshtasticUtils.DefaultDistanceAllowed && a.NodeHeard.Latitude.HasValue && a.NodeHeard.Longitude.HasValue && a.NodeReceiver.Latitude.HasValue && a.NodeReceiver.Longitude.HasValue)
+            .Where(a => !a.NodeReceiver.Ignored && !a.NodeHeard.Ignored)
+            .AsNoTrackingWithIdentityResolution()
+            .ToListAsync())
+            .Where(n => Math.Abs(n.Distance!.Value - MeshtasticUtils.CalculateDistance(n.NodeReceiver.Latitude!.Value, n.NodeReceiver.Longitude!.Value, n.NodeHeard.Latitude!.Value, n.NodeHeard.Longitude!.Value)) < MeshtasticUtils.DifferenceBetweenDistanceAllowed)
+            .ToList();
+
+        Total = Nodes.Count;
+        TotalAlive = Nodes.Count(n => !n.IsOffline());
+        
+        Loading = false;
+        HasRenderMapData = false;
+        
+        StateHasChanged();
+    }
+
+    private Osm.Marker GetMarker(Node node)
+    {
+        var color = node.IsOffline() ? Utils.Red : node.IsMqttGateway == true ? Utils.Green : Utils.Blue;
+
+        return new Osm.Marker
+        {
+            Id = node.Id.ToString(),
+            Latitude = node.Latitude!.Value,
+            Longitude = node.Longitude!.Value,
+            Label = node.AllNames,
+            Popup = $"<p><a href=\"/node/{node.Id}\" target=\"_blank\" rel=\"nofollow\"><b>{node.AllNames}</b></a></p><p>{node.RegionCode?.ToString() ?? "UNSET"} | {node.ModemPreset?.ToString() ?? ""}</p><p>{node.Role?.ToString() ?? ""} | {(node.IsMqttGateway == true ? $"Passerelle MQTT {node.MqttServer?.Name}" : "Radio uniquement")} | {node.PrimaryChannel}</p><p>Dernière MAJ : {node.LastSeen?.ToFrench().ToString(CultureInfo.CurrentCulture)}</p>",
+            IconType = Osm.IconType.Circle,
+            Color = color,
+            FillColor = node is { RegionCode: not null, ModemPreset: not null } ? color : Utils.Gray,
+            Opacity = 1
+        };
+    }
+
+    private string GetIconStyleCss(string color, string? fillColor = null, float opacity = 1)
+    {
+        return $"border-color: {color}; {(opacity > 0 ? $"background-color: {fillColor ?? color}" : "")}";
+    }
+
+    private async Task SetRegionCode(Config.Types.LoRaConfig.Types.RegionCode? regionCode)
+    {
+        Settings.CurrentRegionCode = regionCode;
+
+        if (RenderFinished)
+        {
+            await LocalStorage.SetItemAsync("nodeMapSettings", Settings);
+            HasRenderMapData = false;
+        }
+    }
+
+    private async Task SetRole(Config.Types.DeviceConfig.Types.Role? role)
+    {
+        Settings.CurrentRole = role;
+
+        if (RenderFinished)
+        {
+            await LocalStorage.SetItemAsync("nodeMapSettings", Settings);
+            HasRenderMapData = false;
+        }
+    }
+
+    private async Task SetModemPreset(Config.Types.LoRaConfig.Types.ModemPreset? modemPreset)
+    {
+        Settings.CurrentModemPreset = modemPreset;
+
+        if (RenderFinished)
+        {
+            await LocalStorage.SetItemAsync("nodeMapSettings", Settings);
+            HasRenderMapData = false;
+        }
+    }
+
+    private async Task SetHideLinks(bool value)
+    {
+        Settings.HideLinks = value;
+
+        if (RenderFinished)
+        {
+            await LocalStorage.SetItemAsync("nodeMapSettings", Settings);
+            HasRenderMapData = false;
+        }
+    }
+
+    private async Task SetHideIncompleteLinks(bool value)
+    {
+        Settings.ShowIncompleteLinks = value;
+
+        if (RenderFinished)
+        {
+            await LocalStorage.SetItemAsync("nodeMapSettings", Settings);
+            HasRenderMapData = false;
+        }
+    }
+
+    private async Task SetDurationNeighbors(TimeSpan value)
+    {
+        Settings.DurationNeighbors = value;
+        MinDateNeighbors = (value.TotalDays >= 1 ? DateTime.Today : DateTime.Now).ToUniversalTime().Subtract(value);
+
+        if (RenderFinished)
+        {
+            await LocalStorage.SetItemAsync("nodeMapSettings", Settings);
+            HasRenderMapData = false;
+        }
+    }
+
+    private async Task SetShowLegend(bool showLegend)
+    {
+        Settings.ShowLegend = showLegend;
+        await LocalStorage.SetItemAsync("nodeMapSettings", Settings);
+    }
+
+    private async Task MoveZoomChanged(Osm.LatitudeLongitudeZoom args)
+    {
+        Settings.Latitude = args.Latitude;
+        Settings.Longitude = args.Longitude;
+        Settings.Zoom = args.Zoom;
+        
+        await LocalStorage.SetItemAsync("nodeMapSettings", Settings);
+    }
+    
+    private string FormatKm(int value)
+    {
+        return value + " Km";
+    }
+
+    private string ParseKm(string value)
+    {
+        return value.Replace(" Km", "");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await SaveMapPosition();
+        }
+        catch (Exception)
+        {
+            // Ignored
+        }
+
+        await Context.DisposeAsync();
+    }
+
+    private async Task SaveMapPosition()
+    {
+        if (Map != null && HasRenderMapData)
+        {
+            try
+            {
+                var latitudeLongitudeZoom = await Map.GetLatitudeLongitudeZoom();
+                Settings.Latitude = latitudeLongitudeZoom.Latitude;
+                Settings.Longitude = latitudeLongitudeZoom.Longitude;
+                Settings.Zoom = latitudeLongitudeZoom.Zoom;
+                await LocalStorage.SetItemAsync("nodeMapSettings", Settings);
+            }
+            catch (Exception e)
+            {
+                // ignored
+            }
+        }
+    }
+
+    public class NodeMapSettings
+    {
+        public bool ShowLegend { get; set; }
+        
+        public double Latitude { get; set; }
+        
+        public double Longitude { get; set; }
+        
+        public int Zoom { get; set; }
+        
+        public Config.Types.LoRaConfig.Types.RegionCode? CurrentRegionCode { get; set; }
+        
+        public Config.Types.LoRaConfig.Types.ModemPreset? CurrentModemPreset { get; set; }
+        public Config.Types.DeviceConfig.Types.Role? CurrentRole { get; set; }
+
+        public bool HideLinks { get; set; }
+        public bool ShowIncompleteLinks { get; set; }
+        public TimeSpan DurationNeighbors { get; set; } = TimeSpan.FromDays(1);
+    }
+}

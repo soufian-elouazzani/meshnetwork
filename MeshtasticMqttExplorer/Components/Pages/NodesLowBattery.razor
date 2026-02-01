@@ -1,0 +1,143 @@
+@page "/nodes-low-battery"
+@implements IAsyncDisposable
+
+@using System.Globalization
+@using Common.Context
+@using Common.Context.Entities
+@using Common.Extensions
+@using Common.Extensions.Entities
+@using MeshtasticMqttExplorer.Components.Shared
+@using Microsoft.EntityFrameworkCore
+
+@inject IDbContextFactory<DataContext> ContextFactory;
+
+<PageTitle>Nœuds batterie faible</PageTitle>
+
+<PageHeader Title="Nœuds batterie faible">
+    <SubtitleTemplate>
+        @Telemetries.Count nœuds ont leur batterie &lt;= 25%
+    </SubtitleTemplate>
+    <PageHeaderExtra>
+        <Button Disabled="@Loading" OnClick="FetchData">Actualiser</Button>
+    </PageHeaderExtra>
+</PageHeader>
+
+<Spin Spinning="Loading">
+    <Osm Height="calc(100vh - 250px)" @ref="Map" Latitude="46.199144" Longitude="2.321139" Zoom="5"></Osm>
+
+    <Card Title="Légende" Size="CardSize.Small" Bordered="true">
+        <TitleTemplate>
+            Légende
+        </TitleTemplate>
+        <ChildContent>
+            <div class="legend">
+                <img src="/images/markers/marker-icon-green.png" alt="Vert" />
+                25%
+            </div>
+            <div class="legend">
+                <img src="/images/markers/marker-icon-blue.png" alt="Bleu" />
+                20%
+            </div>
+            <div class="legend">
+                <img src="/images/markers/marker-icon-yellow.png" alt="Jaune" />
+                15%
+            </div>
+            <div class="legend">
+                <img src="/images/markers/marker-icon-orange.png" alt="Orange" />
+                10%
+            </div>
+            <div class="legend">
+                <img src="/images/markers/marker-icon-red.png" alt="Rouge" />
+                5%
+            </div>
+            <div class="legend">
+                <img src="/images/markers/marker-icon-black.png" alt="Noir" />
+                2%
+            </div>
+        </ChildContent>
+    </Card>
+</Spin>
+
+@code
+{
+    private bool Loading { get; set; } = true;
+    private bool HasRenderMapData { get; set; }
+    private List<Telemetry> Telemetries { get; set; } = [];
+    private DataContext Context { get; set; } = null!;
+    private Osm? Map { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender && Map != null && !HasRenderMapData)
+        {
+            await Map.AddMarkers(Telemetries.Select(GetMarker).ToList());
+
+            HasRenderMapData = true;
+        }
+
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Context = await ContextFactory.CreateDbContextAsync();
+
+        await FetchData();
+
+        await base.OnInitializedAsync();
+    }
+
+    private async Task FetchData()
+    {
+        Loading = true;
+        HasRenderMapData = false;
+     
+        if (Map != null)
+        {
+            await Map.ClearMarkers();
+        }
+        
+        Telemetries = (await Context.Telemetries
+            .Include(n => n.Node)
+            .Where(n => n.Type == Meshtastic.Protobufs.Telemetry.VariantOneofCase.DeviceMetrics)
+            .Where(n => n.Node.Latitude.HasValue && n.Node.Longitude.HasValue)
+            .GroupBy(n => n.NodeId)
+            .Select(a => a.OrderByDescending(b => b.CreatedAt).First())
+            .AsNoTrackingWithIdentityResolution()
+            .ToListAsync())
+            .Where(n => n is { BatteryLevel: <= 25, Voltage: > 0 })
+            .ToList();
+
+        Loading = false;
+            
+        await InvokeAsync(StateHasChanged); 
+    }
+
+    private Osm.Marker GetMarker(Telemetry telemetry)
+    {
+        var color = telemetry.BatteryLevel switch
+        {
+            <= 2 => "black",
+            <= 5 => "red",
+            <= 10 => "orange",
+            <= 15 => "yellow",
+            <= 20 => "blue",
+            _ => "green"
+        };
+        
+        return new Osm.Marker
+        {
+            Id = telemetry.Id.ToString(),
+            Latitude = telemetry.Node.Latitude!.Value,
+            Longitude = telemetry.Node.Longitude!.Value,
+            Label = $"{telemetry.BatteryLevel}%",
+            Popup = $"<p><a href=\"/node/{telemetry.NodeId}\" target=\"_blank\" rel=\"nofollow\"><b>{telemetry.Node.AllNames}</b></a></p><p>Rôle : {(telemetry.Node.Role?.ToString() ?? "Inconnu")}</p><p>{telemetry.BatteryLevel}% | {telemetry.Voltage}V</p><p>Dernière MAJ : {telemetry.Node.LastSeen?.ToFrench().ToString(CultureInfo.CurrentCulture)}</p>",
+            Color = color
+        };
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await Context.DisposeAsync();
+    }
+}

@@ -1,0 +1,57 @@
+.ant-page-header {
+    margin-bottom: 10px !important;
+}
+
+.ant-page-header-heading-left {
+    flex-wrap: wrap;
+}
+
+.ant-page-header-heading-title,
+.ant-page-header-heading-sub-title {
+    white-space: normal;
+}
+
+.ant-layout-sider-zero-width-trigger {
+    top: -40px;
+    left: -10px;
+}
+
+.ant-page-header-heading-extra,
+.ant-page-header-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.ant-tag {
+    margin-bottom: 5px;
+}
+
+.ant-segmented-item-label {
+    white-space: normal;
+    text-overflow: unset;
+}
+
+.ant-timeline-item:last-of-type {
+    padding-bottom: 0;
+}
+
+.ant-timeline-item-last > .ant-timeline-item-content:last-of-type {
+    min-height: auto;
+}
+
+.leaflet-container a {
+    word-wrap: break-word;
+}
+
+@media screen and (max-width: 576px) {
+    td.ant-table-cell:first-child {
+        background-color: #d0d0d0 !important;
+    }
+    
+    .leaflet-popup {
+        max-width: 200px;
+    }
+}

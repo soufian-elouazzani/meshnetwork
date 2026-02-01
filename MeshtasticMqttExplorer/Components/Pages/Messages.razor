@@ -1,0 +1,207 @@
+@page "/messages"
+@page "/channel/{channelId:long}/messages"
+@implements IAsyncDisposable
+
+@using System.Globalization
+@using Common.Context
+@using Common.Context.Entities
+@using Common.Extensions
+@using Common.Services
+@using Microsoft.EntityFrameworkCore
+@using Channel = Common.Context.Entities.Channel
+
+@inject IDbContextFactory<DataContext> ContextFactory;
+
+<PageTitle>
+    @if (Channel == null)
+    {
+        <text>Liste des messages</text>
+    }
+    else
+    {
+        <text>Liste des messages du canal @Channel.Name</text>
+    }
+</PageTitle>
+
+<PageHeader Title="Messages">
+    <SubtitleTemplate>
+        @if (Channel == null)
+        {
+            <text>@Total messages dans @Channels.Count cannaux</text>
+        }
+        else
+        {
+            <text>@Total messages dans @Channel.Name</text>
+        }
+    </SubtitleTemplate>
+    <PageHeaderContent>
+        <Segmented Disabled="Loading" Options="@MqttServers" Value="CurrentMqttServer" TValue="long?" OnChange="value => SetMqttServer(value)" />
+    </PageHeaderContent>
+    <PageHeaderExtra>
+        <Button Disabled="@Loading" OnClick="FetchData">Actualiser</Button>
+    </PageHeaderExtra>
+</PageHeader>
+
+<Spin Spinning="Loading">
+    <Layout Class="site-layout-background" Style="padding: 24px 0;">
+        <Sider Class="site-layout-background" Width="250"
+               CollapsedWidth="0" 
+               Breakpoint="BreakpointType.Sm">
+            <Menu Mode="MenuMode.Inline"
+                  Style="height: 100%;">
+                @foreach (var channel in Channels)
+                {
+                    @if (Totals.TryGetValue(channel.Id, out var total))
+                    {
+                        <MenuItem RouterLink="@("/channel/" + channel.Id + "/messages")" RouterMatch="NavLinkMatch.All">@channel.Name (@total messages)</MenuItem>
+                    }
+                }
+            </Menu>
+        </Sider>
+        <Content Style="padding:0 24px; min-height: 280px;">
+            @if (Channel != null)
+            {
+                @foreach (var message in TextMessages)
+                {
+                    <Comment Author="@(message.From.OneName() + " pour " + message.To?.OneName() + " via " + message.Packet?.Gateway.OneName() + " #" + message.Packet?.Id)"
+                             Avatar="@message.From.HardwareModel.GetImageUrl()"
+                             Content="@message.Message"
+                             Datetime="@message.CreatedAt.ToFrench().ToString(CultureInfo.CurrentCulture)"
+                             Placement="@(message.To?.NodeId == MeshtasticService.NodeBroadcast ? CommentPlacement.Left : CommentPlacement.Right)">
+                    </Comment>
+                }
+                
+                <Pagination Total="Total" OnChange="ChangePagination" DefaultPageSize="20" PageSize="PageSize"></Pagination>
+            }
+            else if (Channels.Count > 0)
+            {
+                <Result Title="Choisissez un canal à gauche"></Result>
+            }
+            else
+            {
+                <Result Title="Aucun canal" Status="ResultStatus.Warning"></Result>
+            }
+        </Content>
+    </Layout>
+</Spin>
+
+@code
+{
+    [Parameter]
+    public long? ChannelId { get; set; }
+    
+    private bool Loading { get; set; } = true;
+    private List<SegmentedOption<long?>> MqttServers { get; } = [new(null, "Tous")];
+    private long? CurrentMqttServer { get; set; }
+    private int PageIndex { get; set; }
+    private int PageSize { get; set; } = 20;
+    private int Total { get; set; }
+    private bool RenderFinished { get; set; }
+    private Dictionary<long, int> Totals { get; set; } = new();
+    private List<Channel> Channels { get; set; } = [];
+    private List<TextMessage> TextMessages { get; set; } = [];
+    private Channel? Channel { get; set; }
+    private DataContext Context { get; set; } = null!;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        Context = await ContextFactory.CreateDbContextAsync();
+        
+        MqttServers.AddRange(
+            Utils.MqttServerFilters
+                .Select(a => new SegmentedOption<long?>(a.Value, a.Text))
+        );
+        
+        await base.OnInitializedAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+        RenderFinished = !firstRender;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!ChannelId.HasValue)
+        {
+            Channel = null;
+        }
+        
+        FetchData();
+        
+        await base.OnParametersSetAsync();
+    }
+
+    private void FetchData()
+    {
+        Loading = true;
+
+        Channels = Context.Channels
+            .Where(a => a.UpdatedAt >= DateTime.UtcNow.AddDays(-7))
+            .Where(a => a.Name != "PKI" && a.Name != "admin")
+            .Where(a => a.TextMessages.Any(aa => aa.To!.NodeId == MeshtasticService.NodeBroadcast))
+            .OrderBy(a => a.Name)
+            .AsNoTrackingWithIdentityResolution()
+            .ToList();
+
+        Totals = Context.TextMessages
+            .Where(a => a.To!.NodeId == MeshtasticService.NodeBroadcast)
+            .Where(a => a.Channel.Name != "PKI" && a.Channel.Name != "admin")
+            .Where(a => !CurrentMqttServer.HasValue || (a.To!.MqttServer != null && a.To!.MqttServer.Id == CurrentMqttServer))
+            .GroupBy(t => t.ChannelId)
+            .AsNoTrackingWithIdentityResolution()
+            .ToDictionary(a => a.Key, messages => messages.Count());
+        
+        if (ChannelId.HasValue)
+        {
+            Channel = Channels.Find(c => c.Id == ChannelId);
+
+            if (Channel != null)
+            {
+                TextMessages = Context.TextMessages
+                    .Include(a => a.From)
+                    .Include(a => a.To)
+                    .Include(a => a.Packet)
+                    .ThenInclude(a => a.Gateway)
+                    .Where(a => a.Channel == Channel)
+                    .Where(a => a.To!.NodeId == MeshtasticService.NodeBroadcast)
+                    .Where(a => !CurrentMqttServer.HasValue || (a.To!.MqttServer != null && a.To!.MqttServerId == CurrentMqttServer) || (a.Packet != null && a.Packet.MqttServer != null && a.Packet.MqttServer.Id == CurrentMqttServer))
+                    .OrderByDescending(a => a.CreatedAt)
+                    .Skip(PageIndex * PageSize).Take(PageSize)
+                    .AsNoTrackingWithIdentityResolution()
+                    .ToList();
+                Total = Totals.TryGetValue(Channel.Id, out var total) ? total : 0;
+            }
+        }
+        else
+        {
+            Total = Totals.Sum(a => a.Value);
+        }
+
+        Loading = false;
+    }
+
+    public void ChangePagination(PaginationEventArgs paginationArgs)
+    {
+        PageIndex = paginationArgs.Page - 1;
+        PageSize = paginationArgs.PageSize;
+
+        FetchData();
+    }
+
+    public void SetMqttServer(long? mqttServer)
+    {
+        CurrentMqttServer = mqttServer;
+
+        if (RenderFinished)
+        {
+            FetchData();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await Context.DisposeAsync();
+    }
+}

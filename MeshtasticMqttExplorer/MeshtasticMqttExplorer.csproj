@@ -1,0 +1,80 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <AssemblyVersion>1.8.3</AssemblyVersion>
+        <LangVersion>default</LangVersion>
+      <UserSecretsId>5f16860b-eff8-406f-9124-e5756bbf611e</UserSecretsId>
+  </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="AntDesign" Version="1.4.3" />
+      <PackageReference Include="AntDesign.Charts" Version="0.8.0" />
+      <PackageReference Include="Blazored.LocalStorage" Version="4.5.0" />
+      <PackageReference Include="CsvHelper" Version="33.1.0" />
+      <PackageReference Include="Hangfire.AspNetCore" Version="1.8.21" />
+      <PackageReference Include="Hangfire.Core" Version="1.8.21" />
+      <PackageReference Include="Hangfire.PostgreSql" Version="1.20.12" />
+      <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.9" />
+      <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.9" />
+      <PackageReference Include="Microsoft.EntityFrameworkCore.Abstractions" Version="9.0.9" />
+      <PackageReference Include="Microsoft.EntityFrameworkCore.Analyzers" Version="9.0.9" />
+      <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.9">
+        <PrivateAssets>all</PrivateAssets>
+        <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      </PackageReference>
+      <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.9" />
+      <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.9" />
+      <PackageReference Include="NLog" Version="6.0.4" />
+      <PackageReference Include="NLog.Extensions.Logging" Version="6.0.4" />
+      <PackageReference Include="NLog.Targets.Seq" Version="4.0.2" />
+      <PackageReference Include="NLog.Web.AspNetCore" Version="6.0.4" />
+      <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
+      <PackageReference Include="Seq.Extensions.Logging" Version="8.0.0" />
+      <PackageReference Include="System.Reactive" Version="6.0.2" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Content Update="appsettings.Development.json">
+        <DependentUpon>appsettings.json</DependentUpon>
+      </Content>
+      <None Remove="Dockerfile" />
+      <Content Include="Dockerfile">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <Content Update="Components\Pages\NodesMap.razor.js">
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <DependentUpon>NodesMap.razor</DependentUpon>
+      </Content>
+      <Content Update="appsettings.Production.json">
+        <DependentUpon>appsettings.json</DependentUpon>
+      </Content>
+      <None Remove="Components\Pages\NodesMap.razor.css" />
+      <Content Include="Components\Pages\NodesMap.razor.css">
+        <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      </Content>
+      <Content Update="nlog.Production.config">
+        <DependentUpon>nlog.config</DependentUpon>
+      </Content>
+      <Content Update="appsettings.Production.Gaulix.json">
+        <DependentUpon>appsettings.json</DependentUpon>
+      </Content>
+      <Content Update="nlog.Production.Gaulix.config">
+        <DependentUpon>nlog.config</DependentUpon>
+      </Content>
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Common\Common.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Reference Include="Meshtastic">
+        <HintPath>..\Common\Meshtastic.dll</HintPath>
+      </Reference>
+    </ItemGroup>
+
+</Project>

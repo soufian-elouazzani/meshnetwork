@@ -1,0 +1,69 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <UserSecretsId>dotnet-Worker-11551104-639f-4905-bc25-a46a7c5f4ac8</UserSecretsId>
+        <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+        <LangVersion>default</LangVersion>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Hangfire.AspNetCore" Version="1.8.21" />
+        <PackageReference Include="Hangfire.Core" Version="1.8.21" />
+        <PackageReference Include="Hangfire.PostgreSql" Version="1.20.12" />
+        <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.9" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.9" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Abstractions" Version="9.0.9" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Analyzers" Version="9.0.9" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.9">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.9" />
+        <PackageReference Include="NLog" Version="6.0.4" />
+        <PackageReference Include="NLog.Extensions.Logging" Version="6.0.4" />
+        <PackageReference Include="NLog.Targets.Seq" Version="4.0.2" />
+        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
+        <PackageReference Include="Seq.Extensions.Logging" Version="8.0.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Content Update="appsettings.Development.json">
+            <DependentUpon>appsettings.json</DependentUpon>
+        </Content>
+        <Content Update="nlog.config">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        </Content>
+        <Content Update="nlog.Production.config">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+          <DependentUpon>nlog.config</DependentUpon>
+        </Content>
+        <Content Update="appsettings.Production.json">
+          <DependentUpon>appsettings.json</DependentUpon>
+        </Content>
+        <None Remove="Dockerfile" />
+        <Content Include="Dockerfile">
+          <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Update="appsettings.Production.Gaulix.json">
+          <DependentUpon>appsettings.json</DependentUpon>
+        </Content>
+        <Content Update="nlog.Production.Gaulix.config">
+          <DependentUpon>nlog.config</DependentUpon>
+        </Content>
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Common\Common.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Reference Include="Meshtastic">
+        <HintPath>..\Common\Meshtastic.dll</HintPath>
+      </Reference>
+    </ItemGroup>
+</Project>

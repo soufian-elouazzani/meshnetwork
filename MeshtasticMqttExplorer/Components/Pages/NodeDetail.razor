@@ -1,0 +1,180 @@
+@page "/node/by-nodeid/{nodeid}"
+@page "/node/{id:long}"
+
+@implements IAsyncDisposable
+
+@using Common
+@using Common.Context
+@using Common.Extensions.Entities
+@using Common.Services
+@using Meshtastic.Protobufs
+@using Microsoft.EntityFrameworkCore
+@using MeshtasticMqttExplorer.Components.Shared
+@using NeighborInfo = Common.Context.Entities.NeighborInfo
+
+@inject IDbContextFactory<DataContext> ContextFactory
+
+<PageTitle>Détails du nœud @Node?.AllNames</PageTitle>
+
+<Spin Spinning="Loading">
+    @if (Node != null)
+    {
+        <PageHeader Title="@Node?.Name()" Subtitle="@Node?.NodeIdAsString()">
+            <PageHeaderTags>
+                @if (Alive)
+                {
+                    <Tag Color="@PresetColor.Blue.ToString()">Vue il y a moins de 24h</Tag>
+                }
+                else
+                {
+                    <Tag Color="@PresetColor.Red.ToString()">Vue il y a plus de 24h</Tag>
+                }
+                
+                @if (Node?.IsMqttGateway == true)
+                {
+                    <Tag Color="@PresetColor.Green.ToString()">Passerelle MQTT</Tag>
+                }
+
+                @if (Node?.MqttServer != null)
+                {
+                    <Tag>@Node.MqttServer?.Name</Tag>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(Node?.PrimaryChannel))
+                {
+                    <Tag>@Node.PrimaryChannel</Tag>
+                }
+                
+                @if (Node?.RegionCode != null)
+                {
+                    <Tag>@Node.RegionCode</Tag>
+                }
+                
+                @if (Node?.ModemPreset != null)
+                {
+                    <Tag>@Node.ModemPreset</Tag>
+                }
+                
+                @if (Node?.Role != null)
+                {
+                    <Tag>@Node.Role</Tag>
+                }
+            </PageHeaderTags>
+            <PageHeaderExtra>
+                <Button Disabled="@Loading" OnClick="FetchData">Actualiser</Button>
+            </PageHeaderExtra>
+        </PageHeader>
+
+        <Node NodeInfo="Node" PacketsInfo="PacketsStats" Context="Context"></Node>
+    }
+    else if (Loading)
+    {
+        <Skeleton></Skeleton>
+    }
+    else
+    {
+        <Result Title="Nœud introuvable" Status="ResultStatus.Http404"></Result>
+    }
+</Spin>
+
+@code
+{
+    [Parameter]
+    public long? Id { get; set; }
+    
+    [Parameter]
+    public string? NodeId { get; set; }
+
+    private bool Loading { get; set; } = true;
+    private bool Alive { get; set; }
+    private Common.Context.Entities.Node? Node { get; set; }
+    private Node.PacketsStats<int> PacketsStats { get; } = new();
+    private DataContext Context { get; set; } = null!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Context = await ContextFactory.CreateDbContextAsync();
+
+        await base.OnInitializedAsync();
+    }
+    
+    protected override async Task OnParametersSetAsync()
+    {
+        await FetchData();
+
+        await base.OnParametersSetAsync();
+    }
+
+    private async Task FetchData()
+    {
+        Node = null;
+        Loading = true;
+        
+        var today = DateTime.UtcNow.Date;
+        var yesterday = DateTime.UtcNow.Date.AddDays(-1);
+        var aDay = DateTime.UtcNow.AddHours(-24);
+
+        var query = Context.Nodes
+            .Include(n => n.MqttServer)
+            .Include(n => n.MyNeighbors
+                .Where(a => a.DataSource != NeighborInfo.Source.Unknown && a.DataSource != NeighborInfo.Source.NextHop && a.Distance <= MeshtasticUtils.DefaultDistanceAllowed)
+                .OrderBy(t => t.UpdatedAt))
+            .ThenInclude(n => n.NodeHeard)
+            .Include(n => n.NeighborsFor
+                .Where(a => a.DataSource != NeighborInfo.Source.Unknown && a.DataSource != NeighborInfo.Source.NextHop && a.Distance <= MeshtasticUtils.DefaultDistanceAllowed)
+                .OrderBy(t => t.UpdatedAt))
+            .ThenInclude(n => n.NodeReceiver)
+            .Include(n => n.Positions.Where(a => a.UpdatedAt >= yesterday).OrderByDescending(a => a.UpdatedAt))
+            .ThenInclude(p => p.Packet)
+            .Include(n => n.Telemetries.OrderBy(a => a.CreatedAt))
+            .Include(n => n.PaxCounters.OrderBy(a => a.CreatedAt))
+            .Include(n => n.Waypoints.Where(a => a.ExpiresAt >= DateTime.UtcNow).OrderBy(a => a.CreatedAt))
+            .AsNoTrackingWithIdentityResolution()
+            .AsSplitQuery();
+
+        if (Id.HasValue)
+        {
+            Node = await query.FindByIdAsync(Id);
+        }
+        else if (!string.IsNullOrWhiteSpace(NodeId))
+        {
+            Node = await query.FindByNodeIdStringAsync(NodeId);
+        }
+
+        if (Node == null || MeshtasticService.NodesIgnored.Contains(Node.NodeId))
+        {
+            Loading = false;
+            Node = null;
+
+            return;
+        }
+        
+        Alive = Node.LastSeen >= aDay;
+        
+        var countPackets = Context.Packets
+            .Where(a => a.From == Node && a.To.NodeId == MeshtasticService.NodeBroadcast && a.PortNum != PortNum.TextMessageApp && a.PortNum != PortNum.MapReportApp && a.PacketDuplicated == null && a.ViaMqtt != true && a.HopStart > 0)
+            .AsNoTrackingWithIdentityResolution();
+        PacketsStats.Today = await countPackets.CountAsync(a => a.CreatedAt.Date == today);
+        PacketsStats.Yesterday = await countPackets.CountAsync(a => a.CreatedAt.Date == yesterday);
+        
+        if (Node.MqttServer != null)
+        {
+            var mqttPackets = await Context.Packets
+                .Where(a => a.Gateway == Node && a.PortNum != PortNum.MapReportApp && a.PacketDuplicated == null && a.MqttServer != null && !string.IsNullOrWhiteSpace(a.MqttTopic))
+                .Where(a => a.MqttServer == Node.MqttServer)
+                .Select(a => a.MqttTopic!)
+                .Distinct()
+                .AsNoTrackingWithIdentityResolution()
+                .ToListAsync();
+            
+            PacketsStats.MqttTopics = mqttPackets.Order().ToList();
+        }
+
+        Loading = false;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await Context.DisposeAsync();
+    }
+}

@@ -1,0 +1,80 @@
+﻿@inject IMessageService MessageService;
+@inject IConfiguration Configuration;
+
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
+    <title>Meshtastic MQTT Explorer - Suivi en Temps Réel du réseau Mesh LoRa</title>
+
+    <!-- Meta Description -->
+    <meta name="description" content="Suivez et surveillez le réseau mesh LoRa Meshtastic en temps réel avec une carte interactive. Visualisez facilement les emplacements des nœuds, les messages et l'état du réseau. Parfait pour les activités de plein air et la communication d'urgence.">
+
+    <!-- Meta Keywords -->
+    <meta name="keywords" content="Meshtastic, LoRa, réseau mesh, suivi en temps réel, suivi des nœuds, GPS, communication en plein air, communication d'urgence, tracker LoRa, carte Meshtastic">
+
+    <!-- Meta Author -->
+    <meta name="author" content="Valentin SAUGNIER F4HVV">
+    <meta name="author-email" content="valentin.s.10@gmail.com">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Meshtastic MQTT Explorer - Suivi en Temps Réel des Réseaux Mesh LoRa">
+    <meta property="og:description" content="Suivez et surveillez le réseau mesh LoRa Meshtastic en temps réel avec une carte interactive. Visualisez facilement les emplacements des nœuds, les messages et l'état du réseau.">
+    <meta property="og:url" content="@FrontUrl">
+
+    <!-- Twitter -->
+    <meta name="twitter:title" content="Meshtastic MQTT Explorer - Suivi en Temps Réel des Réseaux Mesh LoRa">
+    <meta name="twitter:description" content="Suivez et surveillez le réseau mesh LoRa Meshtastic en temps réel avec une carte interactive. Visualisez facilement les emplacements des nœuds, les messages et l'état du réseau.">
+    <meta name="twitter:url" content="@FrontUrl">
+    
+    <base href="/"/>
+    <link href="_content/AntDesign/css/ant-design-blazor.css?=@Version" rel="stylesheet" />
+    <link rel="stylesheet" href="MeshtasticMqttExplorer.styles.css?=@Version"/>
+    <link rel="stylesheet" href="styles/styles.css?version?=@Version"/>
+    <link rel="stylesheet" href="styles/leaflet_1.9.4.css" />
+    <link rel="stylesheet" href="styles/GpPluginLeaflet.css" />
+    <HeadOutlet @rendermode="InteractiveServer"/>
+</head>
+
+<body>
+<Routes @rendermode="InteractiveServer" />
+<AntContainer @rendermode="InteractiveServer" />
+<script type="text/javascript">
+    window.useOfflineMaps = @(UseOfflineMaps == true ? "true" : "false");
+</script>
+<script src="_framework/blazor.web.js?=@Version"></script>
+<script src="_content/AntDesign/js/ant-design-blazor.js?=@Version"></script>
+<script src="_content/AntDesign.Charts/ant-design-charts-blazor.js?=@Version"></script>
+<script src="scripts/leaflet_1.9.4.js"></script>
+<script src="scripts/protomaps-leaflet_5.1.0.js"></script>
+<script src="scripts/GpPluginLeaflet.js"></script>
+<script src="scripts/script.js?=@Version"></script>
+<script src="scripts/maps.js?=@Version"></script>
+</body>
+
+</html>
+
+@code {
+    private string? Version { get; set; }
+    private string? FrontUrl { get; set; }
+    private bool? UseOfflineMaps { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Version = GetType().Assembly.GetName().Version?.ToString();
+        FrontUrl = Configuration.GetValue<string>("FrontUrl");
+        UseOfflineMaps = Configuration.GetValue("UseOfflineMaps", false);
+
+        MessageService.Config(new MessageGlobalConfig
+        {
+            Duration = 2000
+        });
+
+        await base.OnInitializedAsync();
+    }
+
+}

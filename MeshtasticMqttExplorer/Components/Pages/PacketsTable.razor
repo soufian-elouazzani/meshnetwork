@@ -1,0 +1,338 @@
+﻿@page "/packets"
+@page "/node/{id:long}/packets"
+@implements IAsyncDisposable
+@using Common.Context
+@using Common.Context.Entities
+@using Common.Extensions
+@using Common.Services
+@using Meshtastic.Protobufs
+@using Microsoft.EntityFrameworkCore
+@using MeshtasticMqttExplorer.Components.Shared
+@using Node = Common.Context.Entities.Node
+
+@inject IDbContextFactory<DataContext> ContextFactory;
+@inject NavigationManager NavigationManager
+
+<PageTitle>Liste des trames envoyées</PageTitle>
+
+@if (Id.HasValue)
+{
+    <PageHeader Title="Trames" OnBack="OnBack">
+        <SubtitleTemplate>
+            @Total trames @(Node?.AllNames) enregistrées
+        </SubtitleTemplate>
+        <PageHeaderExtra>
+            <Button OnClick="FetchData">Actualiser</Button>
+        </PageHeaderExtra>
+    </PageHeader>
+}
+else
+{
+    <PageHeader Title="Trames" OnBack="OnBack">
+        <SubtitleTemplate>
+            @Total trames
+        </SubtitleTemplate>
+        <PageHeaderExtra>
+            <Button OnClick="FetchData">Actualiser</Button>
+        </PageHeaderExtra>
+    </PageHeader>
+}
+
+@if (Id.HasValue)
+{
+    <Segmented Block Options="@_showTypesOptions" Value="CurrentShowType" TValue="ShowType" OnChange="SetShowType"/>
+}
+
+<Table TItem="Packet" DataSource="PacketsQueryable" Responsive
+       PaginationPosition="bottomRight" Locale="Utils.TableLocale">
+    <ChildContent>
+        <PropertyColumn Property="c => c.PacketId" Title="ID" Filterable>
+            <div style="width: 90px">
+                <a href="/packet/@context.Id" target="_blank" rel="nofollow">@context.PacketId</a>
+                @foreach (var duplicated in context.AllDuplicatedPackets.OrderBy(a => a.CreatedAt))
+                {
+                    <br />
+                    <text>Doublon </text><a href="/packet/@duplicated.Id" target="_blank" rel="nofollow">
+                        Via @duplicated.Gateway.OneName()
+                        <text> - </text>
+                        <Tooltip Title="@("Début : " + context.HopStart + " | Limite : " + context.HopLimit)">
+                            @if (duplicated.HopStart - duplicated.HopLimit == 0)
+                            {
+                                <text>En direct</text>
+                            }
+                            else
+                            {
+                                @Math.Abs(duplicated.HopStart - duplicated.HopLimit ?? 0)
+                                <text> sauts</text>
+                            }
+
+                            @if (duplicated.GatewayDistanceKm > 0)
+                            {
+                                <text> - </text>
+                                @Math.Round(duplicated.GatewayDistanceKm.Value, 2)
+                                <text> Km</text>
+                            }
+                        </Tooltip>
+                    </a>
+                }
+            </div>
+        </PropertyColumn>
+        <PropertyColumn Property="c => c.From.AllNames" Title="Expéditeur" Filterable>
+            <div style="width: 150px">
+                <a href="/node/@context.FromId" target="_blank" rel="nofollow">
+                    @context.From.NodeIdString
+                    <br />
+                    @context.From.ShortName
+                    <br />
+                    @context.From.LongName
+                </a>
+            </div>
+        </PropertyColumn>
+        <PropertyColumn Property="c => c.To.AllNames" Title="Destinataire" Filterable>
+            <div style="width: 150px">
+                <a href="/node/@context.ToId" target="_blank" rel="nofollow">
+                    @context.To.NodeIdString
+                    <br />
+                    @context.To.ShortName
+                    <br />
+                    @context.To.LongName
+                </a>
+            </div>
+        </PropertyColumn>
+        <PropertyColumn Property="c => c.Gateway.AllNames" Title="Passerelle" Filterable>
+            <div style="width: 150px">
+                <a href="/node/@context.GatewayId" target="_blank" rel="nofollow">
+                    @context.Gateway.NodeIdString
+                    <br />
+                    @context.Gateway.ShortName
+                    <br />
+                    @context.Gateway.LongName
+                </a>
+            </div>
+        </PropertyColumn>
+        <PropertyColumn Property="c => c.CreatedAt" Title="Date" Sortable SortDirections="new [] { SortDirection.Ascending, SortDirection.Descending }" Filterable DefaultSortOrder="SortDirection.Descending">
+            <div style="width: 80px">
+                <Date Value="context.CreatedAt"></Date>
+            </div>
+        </PropertyColumn>
+        <PropertyColumn Property="c => c.HopStart - c.HopLimit" Title="RX">
+            <div style="width:100px">
+                @if (context.Gateway == context.From)
+                {
+                    <text>Via MQTT</text>
+                    <br />
+                    <text>Max @context.HopLimit sauts</text>
+                }
+                else
+                {
+                    <Tooltip Title="@("Début : " + context.HopStart + " | Limite : " + context.HopLimit)">
+                        @if (context.HopStart - context.HopLimit == 0)
+                        {
+                            <text>En direct</text>
+                        }
+                        else
+                        {
+                            @Math.Abs(context.HopStart - context.HopLimit ?? 0)
+                            <text> sauts</text>
+                        }
+
+                        @if (context.GatewayDistanceKm > 0)
+                        {
+                            <br/>
+                            @Math.Round(context.GatewayDistanceKm.Value, 2)
+                            <text> Km</text>
+                        }
+
+                        @if (context.RxSnr != -999)
+                        {
+                            <br/>
+                            <text>SNR @context.RxSnr</text>
+                            <br/>
+                            <text>RSSI @context.RxRssi</text>
+                        }
+                    </Tooltip>
+                }
+            </div>
+        </PropertyColumn>
+        <PropertyColumn Property="c => c.MqttServerId" Title="MQTT" Filters="Utils.MqttServerFilters">
+            <div style="width: 100px">
+                @context.MqttServer?.Name<br />@context.MqttTopic?.Split("/").LastOrDefault()
+                
+                @if (context.PacketActivity != null)
+                {
+                    <br />
+                    <Tooltip Title="@($"{context.PacketActivity.Comment} ({context.PacketActivity.ReceiverIds.Order().JoinString()})")">
+                        @(context.PacketActivity.Accepted ? $"Autorisée {context.PacketActivity.HopLimit} sauts" : "Refusée")
+                    </Tooltip>
+                }
+            </div>
+        </PropertyColumn>
+        <PropertyColumn Property="c => c.PortNum" Title="Type" Filters="Utils.PortNumFilters">
+            <div style="max-height: 150px; min-width: 300px; overflow-y: auto">
+                <b>@(context.PortNum?.ToString().Replace("App", string.Empty) ?? "Chiffrée")</b>
+                <br />
+                <PacketPayload Packet="context"></PacketPayload>
+            </div>
+        </PropertyColumn>
+    </ChildContent>
+</Table>
+
+@code
+{
+    [Parameter]
+    public long? Id { get; set; }
+
+    private Node? Node { get; set; }
+    private IQueryable<Packet> PacketsQueryable { get; set; } = null!;
+    private int Total { get; set; }
+    private DataContext Context { get; set; } = null!;
+    private ShowType CurrentShowType { get; set; } = ShowType.From;
+    
+    private readonly List<SegmentedOption<ShowType>> _showTypesOptions = [
+        new(ShowType.From, "En tant qu'expéditeur"),
+        new(ShowType.FromTo, "En tant qu'expéditeur et destinaire"),
+        new(ShowType.To, "En tant que destinataire"),
+        new(ShowType.FromOnBroadcast, "En tant qu'expéditeur broadcast"),
+        new(ShowType.Gateway, "En tant que passerelle"),
+        new(ShowType.All, "Tous"),
+    ];
+    
+    protected override async Task OnInitializedAsync()
+    {
+        Context = await ContextFactory.CreateDbContextAsync();
+        
+        await base.OnInitializedAsync();
+    }
+    
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Id.HasValue)
+        {
+            Node = Context.Nodes.Find(Id);
+        }
+        
+        FetchData();
+        
+        await base.OnParametersSetAsync();
+    }
+
+    private void FetchData()
+    {
+        PacketsQueryable = Context.Packets
+                .Include(a => a.PacketActivity)
+                .Include(a => a.MqttServer)
+                .Include(a => a.Channel)
+                .Include(a => a.Gateway)
+                .Include(a => a.From)
+                .Include(a => a.To)
+                // .Include(a => a.AllDuplicatedPackets)
+                // .ThenInclude(a => a.Gateway)
+                .AsNoTrackingWithIdentityResolution();
+
+        var totalQueryable = Context.Packets
+            .AsNoTrackingWithIdentityResolution()
+            .Where(a => a.PacketDuplicated == null);
+
+        if (Id.HasValue)
+        {
+            switch (CurrentShowType)
+            {
+                case ShowType.From:
+                    PacketsQueryable = PacketsQueryable
+                        .Where(a => a.FromId == Id)
+                        .Where(a => a.PacketDuplicated == null);
+                    
+                    totalQueryable = totalQueryable
+                        .Where(a => a.FromId == Id)
+                        .Where(a => a.PacketDuplicated == null);
+                    break;
+                case ShowType.FromOnBroadcast:
+                    PacketsQueryable = PacketsQueryable
+                        .Where(a => a.To.NodeId == MeshtasticService.NodeBroadcast)
+                        .Where(a => a.FromId == Id)
+                        .Where(a => a.PortNum != PortNum.MapReportApp)
+                        .Where(a => a.PacketDuplicated == null);
+                    
+                    totalQueryable = totalQueryable
+                        .Where(a => a.To.NodeId == MeshtasticService.NodeBroadcast)
+                        .Where(a => a.FromId == Id)
+                        .Where(a => a.PacketDuplicated == null);
+                    break;
+                case ShowType.To:
+                    PacketsQueryable = PacketsQueryable
+                        .Where(a => a.ToId == Id)
+                        .Where(a => a.PacketDuplicated == null);
+
+                    totalQueryable = totalQueryable
+                        .Where(a => a.ToId == Id)
+                        .Where(a => a.PacketDuplicated == null);
+                    break;
+                case ShowType.FromTo:
+                    PacketsQueryable = PacketsQueryable
+                        .Where(a => a.FromId == Id || a.ToId == Id)
+                        .Where(a => a.PacketDuplicated == null);
+                    
+                    totalQueryable = totalQueryable
+                        .Where(a => a.FromId == Id || a.ToId == Id)
+                        .Where(a => a.PacketDuplicated == null);
+                    break;
+                case ShowType.Gateway:
+                    PacketsQueryable = PacketsQueryable
+                        .Where(a => a.GatewayId == Id);
+                    
+                    totalQueryable = totalQueryable
+                        .Where(a => a.GatewayId == Id);
+                    break;
+                case ShowType.All:
+                    PacketsQueryable = PacketsQueryable
+                        .Where(a => a.FromId == Id || a.ToId == Id || a.GatewayId == Id)
+                        .Where(a => a.PacketDuplicated == null);
+                    
+                    totalQueryable = totalQueryable
+                        .Where(a => a.FromId == Id || a.ToId == Id || a.GatewayId == Id)
+                        .Where(a => a.PacketDuplicated == null);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
+        }
+        else
+        {
+            PacketsQueryable = PacketsQueryable
+                .Where(a => a.PortNum != PortNum.MapReportApp)
+                .Where(a => a.PacketDuplicated == null);
+            
+            totalQueryable = totalQueryable
+                .Where(a => a.PortNum != PortNum.MapReportApp)
+                .Where(a => a.PacketDuplicated == null);
+        }
+        
+        Total = totalQueryable.Count();
+    }
+
+    private void SetShowType(ShowType showType)
+    {
+        CurrentShowType = showType;
+        FetchData();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await Context.DisposeAsync();
+    }
+
+    private void OnBack()
+    {
+        NavigationManager.NavigateTo($"/node/{Id}");
+    }
+
+    private enum ShowType
+    {
+        From,
+        FromOnBroadcast,
+        Gateway,
+        To,
+        FromTo,
+        All
+    }
+}

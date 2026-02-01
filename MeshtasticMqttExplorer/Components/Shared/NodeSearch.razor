@@ -1,0 +1,41 @@
+@using Common.Context
+@using Common.Extensions.Entities
+@using Microsoft.EntityFrameworkCore
+@implements IAsyncDisposable
+
+@inject IDbContextFactory<DataContext> ContextFactory
+@inject IMessageService Message
+@inject NavigationManager Navigation
+
+<Search Style="width: 200px" Placeholder="Accéder à un nœud" EnterButton="true" OnSearch="OnSearch" @bind-Value="@SearchValue" />
+
+@code {
+    private string SearchValue { get; set; } = "";
+    private DataContext Context { get; set; } = null!;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        Context = await ContextFactory.CreateDbContextAsync();
+        
+        await base.OnInitializedAsync();
+    }
+
+    
+    private async Task OnSearch()
+    {
+        var node = await Context.Nodes.Search(SearchValue);
+        
+        if (node != null) {
+            Navigation.NavigateTo($"/node/{node.Id}");
+        }
+        else
+        {
+            await Message.ErrorAsync($"{SearchValue} introuvable");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await Context.DisposeAsync();
+    }
+}
