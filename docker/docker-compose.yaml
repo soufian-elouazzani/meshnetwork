@@ -5,9 +5,25 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./database:/var/lib/postgresql/data/
+      - ./database:/var/lib/postgresql
+      - ./database/init:/docker-entrypoint-initdb.d
     environment:
       POSTGRES_PASSWORD: motdepasse
+  coverage:
+    build: ../coverage-service
+    restart: unless-stopped
+    depends_on:
+      - database
+    environment:
+      - DB_HOST=database
+      - DB_NAME=postgres
+      - DB_USER=postgres
+      - DB_PASSWORD=motdepasse
+      - RUN_INTERVAL=86400  # 24 hours in seconds
+    volumes:
+      - ./coverage-service/terrain-cache:/root/.splat  # Cache terrain files
+    networks:
+      - default
   mosquitto:
     image: eclipse-mosquitto
     ports:
@@ -18,7 +34,8 @@ services:
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
   front:
-    image: ghcr.io/valentintintin/meshtastic-mqtt-explorer:latest
+    build: ../MeshtasticMqttExplorer 
+    #image: ghcr.io/valentintintin/meshtastic-mqtt-explorer:latest
     restart: always
     ports:
       - "80:8080"

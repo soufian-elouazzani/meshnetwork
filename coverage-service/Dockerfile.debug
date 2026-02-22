@@ -1,0 +1,29 @@
+FROM python:3.11-slim
+
+ENV HOME="/root"
+ENV TERM=xterm
+ENV PYTHONUNBUFFERED=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libbz2-dev \
+    gdal-bin \
+    libgdal-dev \
+    wget \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy Site Planner repo
+COPY meshtastic-site-planner/ /opt/site-planner/
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r /opt/site-planner/requirements.txt
+
+# DEBUG: Let's see what's in the splat directory
+RUN ls -la /opt/site-planner/splat/
+
+# This will fail intentionally so we can see the output
+CMD ["/bin/bash"]
