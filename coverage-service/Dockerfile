@@ -23,7 +23,7 @@ COPY meshtastic-site-planner/ /opt/site-planner/
 # Install Python dependencies from Site Planner
 RUN pip install --no-cache-dir -r /opt/site-planner/requirements.txt
 
-# Compile SPLAT! (using their build process)
+# Compile SPLAT! 
 WORKDIR /opt/site-planner/splat
 RUN chmod +x build configure install && \
     sed -i.bak 's/-march=\$cpu/-march=native/g' build && \
@@ -41,16 +41,16 @@ RUN chmod +x build && \
 # Make sure all binaries are in PATH
 ENV PATH="/opt/site-planner/splat:/opt/site-planner/splat/utils:${PATH}"
 
-# Copy your daemon and requirements
+# Copy daemon and requirements
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy your daemon
+# Copy daemon
 COPY ./src/coverage_daemon.py .
 
 # Create terrain cache directory
 RUN mkdir -p /root/.splat
 
-# Run your daemon
+# Run daemon
 CMD ["python", "-u", "coverage_daemon.py"]

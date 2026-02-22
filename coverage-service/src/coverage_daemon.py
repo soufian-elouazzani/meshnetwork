@@ -14,12 +14,12 @@ from psycopg2.extras import RealDictCursor
 from datetime import datetime, timedelta
 import traceback
 
-# Add Site Planner to path 
+# path to site planner 
 sys.path.append('/opt/site-planner')
 try:
     from app.services.splat import Splat
     from app.models.CoveragePredictionRequest import CoveragePredictionRequest
-    # Note: terrain functions might be elsewhere, we'll handle that separately
+
 except ImportError as e:
     logging.error(f"Failed to import Site Planner modules: {e}")
     sys.exit(1)
@@ -40,7 +40,7 @@ DB_PASSWORD = os.environ.get('DB_PASSWORD', 'motdepasse')
 # How often to run (in seconds) - default 24 hours
 RUN_INTERVAL = int(os.environ.get('RUN_INTERVAL', 86400))
 
-# Default radio parameters (you can make these configurable)
+# Default radio parameters 
 DEFAULT_ANTENNA_HEIGHT = 15  # meters
 DEFAULT_FREQUENCY = 868  # MHz (EU default)
 DEFAULT_POWER = 20  # dBm
@@ -209,7 +209,7 @@ def calculate_node_coverage(node):
         geotiff_data = splat_service.coverage_prediction(request)
         
         # For now, create a simple GeoJSON (placeholder)
-        # You'll need to implement proper GeoTIFF to GeoJSON conversion
+        # need to implement proper GeoTIFF to GeoJSON conversion
         geojson = {
             "type": "FeatureCollection",
             "features": [{
@@ -248,7 +248,7 @@ def calculate_node_coverage(node):
 
 def extract_contours_from_geotiff(geotiff_data):
     """Convert GeoTIFF to signal strength contours"""
-    # This is a placeholder - you'll need actual implementation
+    # This is a placeholder - need actual implementation
     # Options:
     # 1. Use rasterio to read GeoTIFF and extract contours
     # 2. Save temporarily and use gdal_contour
