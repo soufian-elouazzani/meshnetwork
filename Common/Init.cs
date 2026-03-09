@@ -60,6 +60,7 @@ public static class Init
                 builder.Configuration.GetConnectionString("Default")
             );
             option.EnableSensitiveDataLogging();
+            option.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
         });
         
         builder.Services.AddHangfire(action =>

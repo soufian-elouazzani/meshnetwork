@@ -22,6 +22,32 @@ namespace Common.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+                        modelBuilder.Entity("Common.Context.Entities.CoverageMap", b =>
+                {
+                    b.Property<long>("NodeId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CalculatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("CalculatedAt");
+
+                    b.Property<string>("GeoJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("GeoJSON");
+
+                    b.Property<string>("Parameters")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("Parameters");
+
+                    b.HasKey("NodeId");
+
+                    b.HasIndex("CalculatedAt")
+                        .HasDatabaseName("IX_CoverageMaps_CalculatedAt");
+
+                    b.ToTable("CoverageMaps");
+                });
+
             modelBuilder.Entity("Common.Context.Entities.Channel", b =>
                 {
                     b.Property<long>("Id")
@@ -1239,6 +1265,18 @@ namespace Common.Migrations
                     b.ToTable("UserTokens", "router");
                 });
 
+            modelBuilder.Entity("Common.Context.Entities.CoverageMap", b =>
+                {
+                    b.HasOne("Common.Context.Entities.Node", "Node")
+                        .WithOne()
+                        .HasForeignKey("Common.Context.Entities.CoverageMap", "NodeId")
+                        .HasConstraintName("FK_CoverageMaps_Nodes_NodeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Node");
+                });
+
             modelBuilder.Entity("Common.Context.Entities.NeighborInfo", b =>
                 {
                     b.HasOne("Common.Context.Entities.Node", "NodeHeard")
@@ -1603,6 +1641,32 @@ namespace Common.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+                        modelBuilder.Entity("Common.Context.Entities.CoverageMap", b =>
+                {
+                    b.Property<long>("NodeId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CalculatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("CalculatedAt");
+
+                    b.Property<string>("GeoJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("GeoJSON");
+
+                    b.Property<string>("Parameters")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("Parameters");
+
+                    b.HasKey("NodeId");
+
+                    b.HasIndex("CalculatedAt")
+                        .HasDatabaseName("IX_CoverageMaps_CalculatedAt");
+
+                    b.ToTable("CoverageMaps");
                 });
 
             modelBuilder.Entity("Common.Context.Entities.Channel", b =>

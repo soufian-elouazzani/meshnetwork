@@ -23,7 +23,7 @@ COPY meshtastic-site-planner/ /opt/site-planner/
 # Install Python dependencies from Site Planner
 RUN pip install --no-cache-dir -r /opt/site-planner/requirements.txt
 
-# Compile SPLAT! 
+# Compile SPLAT!
 WORKDIR /opt/site-planner/splat
 RUN chmod +x build configure install && \
     sed -i.bak 's/-march=\$cpu/-march=native/g' build && \

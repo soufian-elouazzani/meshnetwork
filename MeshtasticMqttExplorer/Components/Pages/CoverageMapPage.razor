@@ -1,0 +1,256 @@
+@page "/coverage"
+
+@implements IAsyncDisposable
+@using System.Globalization
+@using System.Text.Json
+@using Common.Context
+@using Common.Extensions
+@using Common.Context.Entities
+@using MeshtasticMqttExplorer.Components.Shared
+@using MeshtasticMqttExplorer.Models
+@using Microsoft.EntityFrameworkCore
+
+@inject IDbContextFactory<DataContext> ContextFactory
+@inject Blazored.LocalStorage.ILocalStorageService LocalStorage
+@inject IJSRuntime JSRuntime
+@inject ILogger<CoverageMapPage> Logger
+
+<PageTitle>Carte de couverture</PageTitle>
+
+<PageHeader Title="Carte de couverture">
+    <SubtitleTemplate>
+        @TotalNodes nœuds avec couverture calculée — dernière mise à jour : @LastUpdate
+    </SubtitleTemplate>
+    <PageHeaderExtra>
+        <Button Disabled="@Loading" OnClick="FetchData">Actualiser</Button>
+    </PageHeaderExtra>
+    <PageHeaderContent>
+        <div class="page-header-content">
+            <div>
+                <Switch @bind-Checked="ShowFallbackCircles"
+                        CheckedChildren="Cercles de secours"
+                        UnCheckedChildren="Cercles de secours"
+                        OnChange="_ => RefreshMap()" />
+
+                <Switch @bind-Checked="ShowNodeMarkers"
+                        CheckedChildren="Marqueurs de nœuds"
+                        UnCheckedChildren="Marqueurs de nœuds"
+                        OnChange="_ => RefreshMap()" />
+            </div>
+        </div>
+    </PageHeaderContent>
+</PageHeader>
+
+<Spin Spinning="Loading">
+    <Osm Height="calc(100vh - 230px)" @ref="Map"
+         Latitude="Latitude" Longitude="Longitude" Zoom="Zoom"
+         MoveZoomChanged="args => OnMoveZoomChanged(args)" />
+</Spin>
+
+@code {
+    private bool   Loading             { get; set; }
+    private bool   MapDataRendered     { get; set; }
+    private bool   ShowFallbackCircles { get; set; } = true;
+    private bool   ShowNodeMarkers     { get; set; } = true;
+    private int    TotalNodes          { get; set; }
+    private string LastUpdate          { get; set; } = "—";
+    private double Latitude  { get; set; } = 46.199144;
+    private double Longitude { get; set; } = 2.321139;
+    private int    Zoom      { get; set; } = 6;
+
+    private Osm? Map { get; set; }
+    private DataContext Context { get; set; } = null!;
+    private List<CoverageMapDto> Coverages { get; set; } = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        Context = await ContextFactory.CreateDbContextAsync();
+        await base.OnInitializedAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var saved = await LocalStorage.GetItemAsync<MapPosition>("coverageMapPosition");
+            if (saved != null) { Latitude = saved.Latitude; Longitude = saved.Longitude; Zoom = saved.Zoom; }
+            await FetchData();
+        }
+
+        if (!firstRender && Map != null && !MapDataRendered)
+        {
+            await RenderCoverages();
+        }
+
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    private async Task FetchData()
+    {
+        if (Loading) return;
+        Loading = true;
+
+        var rows = await Context.CoverageMaps
+            .Include(c => c.Node)
+            .AsNoTracking()
+            .ToListAsync();
+
+        Coverages = rows.Select(c => new CoverageMapDto
+        {
+            NodeId       = c.NodeId,
+            NodeName     = c.Node.AllNames ?? c.Node.LongName ?? c.Node.NodeId.ToString("X"),
+            Latitude     = c.Node.Latitude,
+            Longitude    = c.Node.Longitude,
+            GeoJson      = c.GeoJson.RootElement.Clone(),
+            RadiusMeters = EstimateRadius(c.GeoJson.RootElement),
+            CalculatedAt = c.CalculatedAt,
+            Parameters   = c.Parameters?.RootElement.Clone(),
+        }).ToList();
+
+        TotalNodes  = Coverages.Count;
+        LastUpdate  = Coverages.Count > 0
+            ? Coverages.Max(c => c.CalculatedAt).ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
+            : "—";
+
+        Loading         = false;
+        MapDataRendered = false;
+        StateHasChanged();
+    }
+
+    private async Task RenderCoverages()
+    {
+        if (Map == null) return;
+
+        await Map.ClearMarkers();
+
+        var geojsonItems = Coverages
+            .Select(c => new
+            {
+                nodeId   = c.NodeId,
+                nodeName = c.NodeName,
+                geoJson  = c.GeoJson,
+                calcAt   = c.CalculatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture),
+            }).ToList();
+
+        await JSRuntime.InvokeVoidAsync("coverageMap.addGeoJsonLayers", geojsonItems);
+
+        if (ShowFallbackCircles)
+        {
+            var circles = Coverages
+                .Where(c => c.Latitude.HasValue && c.Longitude.HasValue && c.RadiusMeters.HasValue)
+                .Select(c => new
+                {
+                    id        = $"cov-circle-{c.NodeId}",
+                    latitude  = c.Latitude!.Value,
+                    longitude = c.Longitude!.Value,
+                    radius    = c.RadiusMeters!.Value,
+                    nodeName  = c.NodeName,
+                    calcAt    = c.CalculatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture),
+                }).ToList();
+
+            await JSRuntime.InvokeVoidAsync("coverageMap.addCircles", circles);
+        }
+
+        if (ShowNodeMarkers)
+        {
+            var markers = Coverages
+                .Where(c => c.Latitude.HasValue && c.Longitude.HasValue)
+                .Select(c => new Osm.Marker
+                {
+                    Id        = $"cov-node-{c.NodeId}",
+                    Latitude  = c.Latitude!.Value,
+                    Longitude = c.Longitude!.Value,
+                    Label     = c.NodeName,
+                    Popup     = BuildPopupHtml(c),
+                    IconType  = Osm.IconType.Circle,
+                    Color     = "#2196F3",
+                    FillColor = "#2196F3",
+                    Opacity   = 1f,
+                }).ToList();
+
+            await Map.AddMarkers(markers);
+        }
+
+        MapDataRendered = true;
+    }
+
+    private async Task RefreshMap()
+    {
+        MapDataRendered = false;
+        await RenderCoverages();
+    }
+
+    private static string BuildPopupHtml(CoverageMapDto c)
+    {
+        var radius = c.RadiusMeters.HasValue
+            ? $"{c.RadiusMeters.Value / 1000:F1} km"
+            : "inconnue";
+
+        return $"<p><b>{System.Net.WebUtility.HtmlEncode(c.NodeName ?? "—")}</b></p>" +
+               $"<p>Portée estimée : {radius}</p>" +
+               $"<p>Calculé le : {c.CalculatedAt.ToLocalTime():g}</p>" +
+               $"<p><a href=\"/node/{c.NodeId}\" target=\"_blank\" rel=\"nofollow\">Détail du nœud</a></p>";
+    }
+
+    private static double? EstimateRadius(JsonElement geoJson)
+    {
+        try
+        {
+            var coords = CollectCoordinates(geoJson).ToList();
+            if (coords.Count == 0) return null;
+            var centerLat = (coords.Min(p => p.lat) + coords.Max(p => p.lat)) / 2;
+            var centerLon = (coords.Min(p => p.lon) + coords.Max(p => p.lon)) / 2;
+            return Math.Round(coords.Max(p => HaversineMeters(centerLat, centerLon, p.lat, p.lon)));
+        }
+        catch { return null; }
+    }
+
+    private static IEnumerable<(double lat, double lon)> CollectCoordinates(JsonElement root)
+    {
+        if (!root.TryGetProperty("coordinates", out var c)) yield break;
+        var type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
+        switch (type)
+        {
+            case "Polygon":
+                foreach (var pt in FlattenRings(c)) yield return pt;
+                break;
+            case "MultiPolygon":
+                foreach (var poly in c.EnumerateArray())
+                    foreach (var pt in FlattenRings(poly)) yield return pt;
+                break;
+        }
+    }
+
+    private static IEnumerable<(double lat, double lon)> FlattenRings(JsonElement rings)
+    {
+        foreach (var ring in rings.EnumerateArray())
+            foreach (var pt in ring.EnumerateArray())
+            {
+                var a = pt.EnumerateArray().ToArray();
+                if (a.Length >= 2) yield return (a[1].GetDouble(), a[0].GetDouble());
+            }
+    }
+
+    private static double HaversineMeters(double lat1, double lon1, double lat2, double lon2)
+    {
+        const double R = 6_371_000;
+        var dLat = (lat2 - lat1) * Math.PI / 180;
+        var dLon = (lon2 - lon1) * Math.PI / 180;
+        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2)
+              + Math.Cos(lat1 * Math.PI / 180) * Math.Cos(lat2 * Math.PI / 180)
+              * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+        return R * 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+    }
+
+    private async Task OnMoveZoomChanged(Osm.LatitudeLongitudeZoom args)
+    {
+        Latitude  = args.Latitude;
+        Longitude = args.Longitude;
+        Zoom      = args.Zoom;
+        await LocalStorage.SetItemAsync("coverageMapPosition", new MapPosition(args.Latitude, args.Longitude, args.Zoom));
+    }
+
+    public async ValueTask DisposeAsync() => await Context.DisposeAsync();
+
+    private record MapPosition(double Latitude, double Longitude, int Zoom);
+}

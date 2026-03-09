@@ -38,6 +38,8 @@ public class DataContext(DbContextOptions<DataContext> options, ILogger<DataCont
     public required DbSet<NodeConfiguration> NodeConfigurations { get; set; }
     public required DbSet<PacketActivity> PacketActivities { get; set; }
 
+    public required DbSet<CoverageMap> CoverageMaps { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
