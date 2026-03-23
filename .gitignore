@@ -17,4 +17,4 @@ docker/mosquitto/data/*
 docker/mosquitto/log/*
 docker/database/*
 docker/mymap.pmtiles
-frontendCoverage/node_modules/*
+coverage-mfe/node_modules/*

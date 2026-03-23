@@ -44,6 +44,21 @@ services:
     volumes:
       - ./appsettings.json:/app/appsettings.Production.json
 #      - ./mymap.pmtiles:/app/wwwroot/mymap.pmtiles
+    networks:
+      - default
+  coverage-mfe:
+    build:
+      context: ../coverage-mfe
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - front
+    networks:
+      - default
+    # Pas de ports exposés — accessible uniquement via l'iframe depuis le shell Blazor
+    # Si tu veux le tester directement depuis le navigateur :
+    ports:
+      - "3001:80"
   recorder:
     image: ghcr.io/valentintintin/meshtastic-mqtt-explorer:latest
     entrypoint: "dotnet"
