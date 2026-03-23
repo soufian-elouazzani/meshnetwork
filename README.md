@@ -17,8 +17,9 @@ cd meshnetwork/docker
 
 # Start all services
 sudo docker compose up -d
+```
 
-#🗺️ Features
+## 🗺️ Features
 Real-time node tracking via MQTT
 
 Automatic coverage calculation using SPLAT! terrain analysis
@@ -29,7 +30,7 @@ Node clustering for redundancy analysis
 
 Persistent storage with PostgreSQL
 
-#📦 Services
+## 📦 Services
 Service	Description	Port
 front	Main Meshtastic map	80
 coverage	Coverage calculation daemon	-
@@ -39,13 +40,13 @@ database	PostgreSQL	5432
 mosquitto	MQTT broker	1883
 worker	Background tasks	-
 
-#🔧 Configuration
+## 🔧 Configuration
 Environment Variables
 Variable	Default	Description
 DB_PASSWORD	motdepasse	PostgreSQL password
 RUN_INTERVAL	300	Coverage calculation interval (seconds)
 
-#Sample Data
+## Sample Data
 The database automatically loads sample nodes and coverage maps on first start:
 
 8 test nodes across France
@@ -55,10 +56,10 @@ Coverage polygons for each node
 Ready to use immediately
 
 
-#📝 License
+## 📝 License
 MIT License
 
-#🙏 Credits
+## 🙏 Credits
 Meshtastic MQTT Explorer by Valentintintin
 
 SPLAT! by John A. Magliacane, KD2BD
