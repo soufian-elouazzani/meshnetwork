@@ -80,6 +80,20 @@ services:
     restart: always
     volumes:
       - ./appsettings.json:/app/appsettings.Production.json
+  redundancy:
+    image: soufian1/meshtastic-redundancy-service:latest
+    restart: unless-stopped
+    depends_on:
+      - database
+    environment:
+      - DB_HOST=database
+      - DB_PASSWORD=motdepasse
+      - RUN_INTERVAL=60
+    networks:
+      - default
+
+
+
 #  router:
 #    image: ghcr.io/valentintintin/meshtastic-mqtt-explorer:latest
 #    entrypoint: "dotnet"
