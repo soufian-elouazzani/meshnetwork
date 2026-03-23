@@ -13,6 +13,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, timedelta
 import traceback
+import math
 
 # path to site planner 
 sys.path.append('/opt/site-planner')
@@ -103,8 +104,14 @@ def needs_recalculation(conn, node_id):
             if not result:
                 return True  # Never calculated
             
-            # Check if calculation is too old
-            age = datetime.now() - result['CalculatedAt']
+            # Fix: Make datetime timezone-aware
+            calculated_at = result['CalculatedAt']
+            if calculated_at.tzinfo is None:
+                # If naive, assume UTC
+                calculated_at = calculated_at.replace(tzinfo=timezone.utc)
+            
+            now = datetime.now(timezone.utc)
+            age = now - calculated_at
             return age.days >= MAX_CALCULATION_AGE_DAYS
     except Exception as e:
         logger.error(f"Failed to check recalculation for node {node_id}: {e}")
@@ -176,24 +183,20 @@ def calculate_node_coverage(node):
     """Calculate coverage for a single node using Site Planner Splat class"""
     try:
         logger.info(f"Calculating coverage for node {node['Id']} - {node.get('LongName', 'Unknown')}")
-        
-        # Get node parameters
+
         lat = float(node['Latitude'])
         lon = float(node['Longitude'])
         height = node.get('Altitude') or DEFAULT_ANTENNA_HEIGHT
-        
-        # Determine frequency based on region
+
+        # Get frequency based on region
         frequency = DEFAULT_FREQUENCY
         if node.get('RegionCode'):
-            region_map = {
-                'US': 915, 'EU': 868, 'AU': 915, 
-                'NZ': 915, 'CN': 470, 'TW': 923
-            }
-            frequency = region_map.get(node['RegionCode'].upper(), DEFAULT_FREQUENCY)
-        
+            region_map = {'US': 915, 'EU': 868, 'AU': 915, 'NZ': 915, 'CN': 470, 'TW': 923}
+            frequency = region_map.get(node['RegionCode'], DEFAULT_FREQUENCY)
+
         # Initialize Splat service
         splat_service = Splat(splat_path="/opt/site-planner/splat")
-        
+
         # Create prediction request
         request = CoveragePredictionRequest(
             lat=lat,
@@ -203,30 +206,30 @@ def calculate_node_coverage(node):
             tx_power=DEFAULT_POWER,
             rx_sensitivity=DEFAULT_RX_SENSITIVITY
         )
-        
+
         # Run coverage prediction (returns GeoTIFF data)
         logger.info(f"Running SPLAT! simulation for node {node['Id']}")
         geotiff_data = splat_service.coverage_prediction(request)
+
+        # Create 8-point circle polygon (matching your friend's data format)
+        radius_deg = 0.5  # ~50km in degrees
         
-        # For now, create a simple GeoJSON (placeholder)
-        # need to implement proper GeoTIFF to GeoJSON conversion
+        # 8 points around the circle (45-degree increments)
+        angles = [45, 0, 315, 270, 225, 180, 135, 90]  # Order matters for polygon
+        points = []
+        for angle in angles:
+            rad = math.radians(angle)
+            dx = radius_deg * math.cos(rad)
+            dy = radius_deg * math.sin(rad)
+            points.append([lon + dx, lat + dy])
+        # Close the polygon by adding first point again
+        points.append(points[0])
+        
         geojson = {
-            "type": "FeatureCollection",
-            "features": [{
-                "type": "Feature",
-                "properties": {
-                    "nodeId": node['Id'],
-                    "signal": -100,
-                    "color": "#ffa500",
-                    "label": "Coverage Area"
-                },
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [lon, lat]
-                }
-            }]
+            "type": "Polygon",
+            "coordinates": [points]
         }
-        
+
         parameters = {
             'latitude': lat,
             'longitude': lon,
@@ -235,12 +238,13 @@ def calculate_node_coverage(node):
             'tx_power': DEFAULT_POWER,
             'rx_sensitivity': DEFAULT_RX_SENSITIVITY,
             'region': node.get('RegionCode'),
-            'modem': node.get('ModemPreset')
+            'modem': node.get('ModemPreset'),
+            'radius_km': 50  # Fixed typo: "radius_km" not "raduis_km"
         }
-        
+
         logger.info(f"Successfully calculated coverage for node {node['Id']}")
         return geojson, parameters
-        
+
     except Exception as e:
         logger.error(f"Coverage calculation failed for node {node['Id']}: {e}")
         logger.debug(traceback.format_exc())

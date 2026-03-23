@@ -9,8 +9,10 @@ services:
       - ./database/init:/docker-entrypoint-initdb.d
     environment:
       POSTGRES_PASSWORD: motdepasse
+    entrypoint: /docker-entrypoint-initdb.d/entrypoint.sh
+
   coverage:
-    image: soufian1/meshtastic-coverage-service
+    image: soufian1/meshtastic-coverage-service:latest
     restart: unless-stopped
     depends_on:
       - database
@@ -19,7 +21,7 @@ services:
       - DB_NAME=postgres
       - DB_USER=postgres
       - DB_PASSWORD=motdepasse
-      - RUN_INTERVAL=86400  # 24 hours in seconds
+      - RUN_INTERVAL=300  # 5 mins
     volumes:
       - ./coverage-service/terrain-cache:/root/.splat  # Cache terrain files
     networks:
@@ -47,9 +49,10 @@ services:
     networks:
       - default
   coverage-mfe:
-    build:
-      context: ../coverage-mfe
-      dockerfile: Dockerfile
+    image: soufian1/meshtastic-coverage-mfe:latest  
+  #build:
+    #  context: ../coverage-mfe
+    #  dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       - front

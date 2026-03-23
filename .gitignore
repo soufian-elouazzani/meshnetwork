@@ -15,6 +15,5 @@ Worker/appsettings.Production.Gaulix.json
 
 docker/mosquitto/data/*
 docker/mosquitto/log/*
-docker/database/*
 docker/mymap.pmtiles
 coverage-mfe/node_modules/*
