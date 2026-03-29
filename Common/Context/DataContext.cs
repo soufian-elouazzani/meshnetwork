@@ -39,6 +39,7 @@ public class DataContext(DbContextOptions<DataContext> options, ILogger<DataCont
     public required DbSet<PacketActivity> PacketActivities { get; set; }
 
     public required DbSet<CoverageMap> CoverageMaps { get; set; }
+    public required DbSet<Redundancy> Redundancies { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

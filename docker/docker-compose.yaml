@@ -6,16 +6,22 @@ services:
       - "5432:5432"
     volumes:
       - ./database:/var/lib/postgresql
-      - ./database/init:/docker-entrypoint-initdb.d
+#      - ./database/init:/docker-entrypoint-initdb.d
     environment:
       POSTGRES_PASSWORD: motdepasse
-    entrypoint: /docker-entrypoint-initdb.d/entrypoint.sh
+#    entrypoint: /docker-entrypoint-initdb.d/entrypoint.sh
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   coverage:
     image: soufian1/meshtastic-coverage-service:latest
     restart: unless-stopped
     depends_on:
-      - database
+      database:
+        condition: service_healthy
     environment:
       - DB_HOST=database
       - DB_NAME=postgres
@@ -36,23 +42,27 @@ services:
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
   front:
-    build:
-      context: ../
-      dockerfile: Dockerfile.build
+#    build:
+#      context: ../
+#      dockerfile: Dockerfile.build
 #    image: ghcr.io/valentintintin/meshtastic-mqtt-explorer:latest
+    image: chaymae888/meshtastic-front
     restart: always
     ports:
       - "80:8080"
     volumes:
       - ./appsettings.json:/app/appsettings.Production.json
 #      - ./mymap.pmtiles:/app/wwwroot/mymap.pmtiles
+    depends_on:
+      database:
+        condition: service_healthy
     networks:
       - default
   coverage-mfe:
-    image: soufian1/meshtastic-coverage-mfe:latest  
-  #build:
-    #  context: ../coverage-mfe
-    #  dockerfile: Dockerfile
+    image: chaymae888/meshtastic-coverage-mfe
+#    build:
+#        context: ../coverage-mfe
+#        dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       - front
@@ -72,6 +82,9 @@ services:
       - "81:8080"
     volumes:
       - ./appsettings.json:/app/appsettings.Production.json
+    depends_on:
+      database:
+        condition: service_healthy
   worker:
     image: ghcr.io/valentintintin/meshtastic-mqtt-explorer:latest
     entrypoint: "dotnet"
@@ -80,11 +93,15 @@ services:
     restart: always
     volumes:
       - ./appsettings.json:/app/appsettings.Production.json
+    depends_on:
+      database:
+        condition: service_healthy
   redundancy:
     image: soufian1/meshtastic-redundancy-service:latest
     restart: unless-stopped
     depends_on:
-      - database
+      database:
+        condition: service_healthy
     environment:
       - DB_HOST=database
       - DB_PASSWORD=motdepasse

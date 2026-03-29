@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "leaflet": "^1.9.4",
-    "vue": "^3.5.20"
+    "vue": "^3.5.20",
+    "@turf/turf": "^7.2.0"
   },
   "devDependencies": {
     "@types/leaflet": "^1.9.20",

@@ -9,17 +9,17 @@ VALUES
     (333332, 333332, NOW(), NOW(), 'Marseille Vieux Port', 'MVP', 'Eu868', 43.2962, 5.3752, NOW(), false),
     (444441, 444441, NOW(), NOW(), 'Toulouse Centre', 'TCEN', 'Eu868', 43.6047, 1.4442, NOW(), false),
     (555551, 555551, NOW(), NOW(), 'Bordeaux Centre', 'BCEN', 'Eu868', 44.8378, -0.5792, NOW(), false)
-ON CONFLICT ("Id") DO NOTHING;
+    ON CONFLICT ("Id") DO NOTHING;
 
 
 
 -- Show count
 DO $$
 DECLARE
-    node_count INTEGER;
+node_count INTEGER;
     coverage_count INTEGER;
 BEGIN
-    SELECT COUNT(*) INTO node_count FROM "Nodes";
-    SELECT COUNT(*) INTO coverage_count FROM "CoverageMaps";
-    RAISE NOTICE 'Loaded % nodes and % coverage maps', node_count, coverage_count;
+SELECT COUNT(*) INTO node_count FROM "Nodes";
+SELECT COUNT(*) INTO coverage_count FROM "CoverageMaps";
+RAISE NOTICE 'Loaded % nodes and % coverage maps', node_count, coverage_count;
 END $$;

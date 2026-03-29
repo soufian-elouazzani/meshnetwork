@@ -2,8 +2,8 @@
 set -e
 
 # Start PostgreSQL in background
-docker-entrypoint.sh postgres &
-
+#docker-entrypoint.sh postgres &
+exec docker-entrypoint.sh postgres
 # Wait for PostgreSQL to be ready
 until pg_isready -U postgres -h localhost; do
   sleep 1
