@@ -171,7 +171,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📧 Contact
 
-**Soufian Elouazzani** - [GitHub](https://github.com/soufian-elouazzani)
+**Soufian Elouazzani** - [GitHub](https://github.com/soufian-elouazzani) 
+
 **Bouti Chaimae** - [GitHub](https://github.com/Chaymae888)
 
 **Project Link:** [https://github.com/soufian-elouazzani/meshnetwork](https://github.com/soufian-elouazzani/meshnetwork)
