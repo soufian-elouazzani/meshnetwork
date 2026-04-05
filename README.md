@@ -3,7 +3,7 @@
 A complete monitoring solution for Meshtastic networks with **automatic coverage calculation** and **redundancy analysis**.
 
 
-![Architecture](Screenshots/architecture_complete.png)
+![Architecture](https://raw.githubusercontent.com/soufian-elouazzani/meshnetwork-docs/main/Screenshots/architecture_complete.png)
 
 ---
 ## 📋 Table of Contents
@@ -94,9 +94,9 @@ sudo docker compose down
 
 | Service | Image | Port | Description |
 |---------|-------|------|-------------|
-| **front** | `soufian1/meshtastic-front` | 80 | Main .NET Blazor interface |
+| **front** | `chaymae888/meshtastic-front` | 80 | Main .NET Blazor interface |
 | **coverage** | `soufian1/meshtastic-coverage-service` | - | Coverage calculation daemon |
-| **coverage-mfe** | `soufian1/meshtastic-coverage-mfe` | 3001 | Vue.js microfrontend |
+| **coverage-mfe** | `chaymae888/meshtastic-coverage-mfe` | 3001 | Vue.js microfrontend |
 | **redundancy** | `soufian1/meshtastic-redundancy-service` | - | Redundancy analysis daemon |
 | **recorder** | `ghcr.io/valentintintin/...` | 81 | MQTT data recorder |
 | **database** | `postgres` | 5432 | PostgreSQL |
@@ -106,25 +106,25 @@ sudo docker compose down
 
 ### Coverage Service Logs
 
-![Coverage Logs](Screenshots/Screenshot%20from%202026-03-23%2022-20-03.png)
+![Coverage Logs](https://raw.githubusercontent.com/soufian-elouazzani/meshnetwork-docs/main/Screenshots/Screenshot%20from%202026-03-23%2022-20-03.png)
 
 *SPLAT! terrain download and coverage calculation in progress*
 
 ### Redundancy Service Logs
 
-![Redundancy Logs](Screenshots/Screenshot%20from%202026-03-23%2022-21-38.png)
+![Redundancy Logs](https://raw.githubusercontent.com/soufian-elouazzani/meshnetwork-docs/main/Screenshots/Screenshot%20from%202026-03-23%2022-21-38.png)
 
 *Redundancy levels calculated for 8 nodes*
 
 ### Microfrontend Interface
 
-![Microfrontend](Screenshots/Screenshot%20from%202026-03-23%2022-24-31.png)
+![Microfrontend](https://raw.githubusercontent.com/soufian-elouazzani/meshnetwork-docs/main/Screenshots/Screenshot%20from%202026-03-23%2022-24-31.png)
 
 *Coverage zones displayed in the Vue.js microfrontend*
 
 ### Integrated Main Interface
 
-![Main Interface](Screenshots/Screenshot%20from%202026-03-23%2022-26-02.png)
+![Main Interface](https://raw.githubusercontent.com/soufian-elouazzani/meshnetwork-docs/main/Screenshots/Screenshot%20from%202026-03-23%2022-26-02.png)
 
 *Final integration with the Meshtastic MQTT Explorer*
 
