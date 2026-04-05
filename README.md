@@ -124,7 +124,7 @@ sudo docker compose down
 
 ### Integrated Main Interface
 
-![Main Interface](https://raw.githubusercontent.com/soufian-elouazzani/meshnetwork-docs/main/Screenshot/app-after.png)
+![Main Interface](https://raw.githubusercontent.com/soufian-elouazzani/meshnetwork-docs/main/Screenshots/app-after.png)
 
 *Final integration with the Meshtastic MQTT Explorer*
 
